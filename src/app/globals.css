@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --color-chess-dark: #779952;
+  --color-chess-light: #edeed1;
+  --color-chess-bg: #0f1419;
+  --color-chess-card: #1a1f2e;
+  --color-chess-border: #2a3040;
+  --color-chess-accent: #7c3aed;
+}
+
+:root {
+  --bg-primary: #0f1419;
+  --bg-card: #1a1f2e;
+  --bg-card-hover: #222840;
+  --border-color: #2a3040;
+  --text-primary: #e4e8f1;
+  --text-secondary: #8892a6;
+  --accent: #7c3aed;
+  --win: #22c55e;
+  --loss: #ef4444;
+  --draw: #a3a3a3;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a4060;
+}
