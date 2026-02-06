@@ -157,6 +157,39 @@ export function validateRatings(raw: string | null): Validated<string> {
   return { ok: true, data: value };
 }
 
+/**
+ * Validate an optional `since` Unix timestamp (seconds).
+ * Returns null when omitted (meaning "no date filter").
+ * Rejects timestamps in the future or before 2010-01-01.
+ */
+const MIN_SINCE = 1262304000; // 2010-01-01T00:00:00Z
+
+export function validateSince(raw: string | null): Validated<number | null> {
+  if (!raw || raw.trim().length === 0) {
+    return { ok: true, data: null };
+  }
+  const value = parseInt(raw, 10);
+  if (Number.isNaN(value)) {
+    return {
+      ok: false,
+      errors: [{ field: "since", message: "since must be a Unix timestamp in seconds." }],
+    };
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (value < MIN_SINCE || value > now) {
+    return {
+      ok: false,
+      errors: [
+        {
+          field: "since",
+          message: `since must be between ${MIN_SINCE} (2010-01-01) and ${now} (now).`,
+        },
+      ],
+    };
+  }
+  return { ok: true, data: value };
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

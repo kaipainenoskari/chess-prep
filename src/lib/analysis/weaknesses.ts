@@ -87,7 +87,7 @@ export function detectWeaknesses(
   for (const line of strongWhiteLines) {
     if (line.winRate > OPENING_STRONG_THRESHOLD && line.games >= OPENING_MIN_GAMES) {
       strengths.push({
-        id: `opening-white-strong-${line.move}`,
+        id: `opening-white-strong-${line.move}-${line.fen.slice(0, 10)}`,
         category: "opening",
         severity: line.winRate > OPENING_STRONG_HIGH_SEVERITY ? "high" : "medium",
         title: `Strong as White with ${line.move}`,
@@ -101,7 +101,7 @@ export function detectWeaknesses(
   for (const line of strongBlackLines) {
     if (line.winRate > OPENING_STRONG_THRESHOLD && line.games >= OPENING_MIN_GAMES) {
       strengths.push({
-        id: `opening-black-strong-${line.move}`,
+        id: `opening-black-strong-${line.move}-${line.fen.slice(0, 10)}`,
         category: "opening",
         severity: line.winRate > OPENING_STRONG_HIGH_SEVERITY ? "high" : "medium",
         title: `Strong as Black with ${line.move}`,

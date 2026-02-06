@@ -121,3 +121,43 @@ export const DEFAULT_MONTHS_BACK = 6;
 
 /** Stockfish fallback depth when using chess-api.com. */
 export const EVAL_FALLBACK_DEPTH = 16;
+
+// ---------------------------------------------------------------------------
+// Prep mode – scoring weights & thresholds
+// ---------------------------------------------------------------------------
+
+/** Weight (out of 100) for population effectiveness. */
+export const PREP_WEIGHT_POPULATION = 30;
+
+/** Weight (out of 100) for surprise value. */
+export const PREP_WEIGHT_SURPRISE = 25;
+
+/** Weight (out of 100) for opponent weakness exploitation. */
+export const PREP_WEIGHT_WEAKNESS = 30;
+
+/** Weight (out of 100) for engine soundness. */
+export const PREP_WEIGHT_ENGINE = 15;
+
+/** Minimum population games for a move to be considered. */
+export const PREP_MIN_POPULATION_GAMES = 5;
+
+/** Eval threshold (centipawns) below which a move is filtered out entirely. */
+export const PREP_EVAL_FLOOR = -200;
+
+/** Eval threshold for "speculative" tag. */
+export const PREP_SPECULATIVE_THRESHOLD = -50;
+
+/** Eval threshold for "sound" tag. */
+export const PREP_SOUND_THRESHOLD = 50;
+
+/** Opponent win-rate threshold for "weakness" tag. */
+export const PREP_WEAKNESS_WINRATE = 0.4;
+
+/** Default line depth (half-moves). */
+export const PREP_LINE_DEPTH = 6;
+
+/** Number of top candidates to fetch evals for. */
+export const PREP_TOP_EVAL_COUNT = 5;
+
+/** Number of top suggestions to build full lines for. */
+export const PREP_TOP_LINE_COUNT = 3;
