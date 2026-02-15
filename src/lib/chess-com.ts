@@ -73,6 +73,11 @@ async function fetchMonthGames(archiveUrl: string): Promise<ChessComGame[]> {
   return data.games;
 }
 
+/**
+ * Fetch games from Chess.com, with optional month limit.
+ * @param username - Chess.com username
+ * @param monthsBack - Number of months to include (most recent). Use 0 for all games.
+ */
 export async function fetchAllGamesCached(
   username: string,
   monthsBack: number = 6,
@@ -80,7 +85,7 @@ export async function fetchAllGamesCached(
   const db = getDb();
   const archives = await fetchArchiveList(username);
 
-  const recentArchives = archives.slice(-monthsBack);
+  const recentArchives = monthsBack <= 0 ? archives : archives.slice(-monthsBack);
   const allGames: ChessComGame[] = [];
   const now = Math.floor(Date.now() / 1000);
 

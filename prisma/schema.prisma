@@ -1,0 +1,83 @@
+// Chess Prep — analysis pipeline persistence (PostgreSQL)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model PositionCache {
+  id        String   @id @default(cuid())
+  fen       String
+  depth     Int
+  multipv   Int
+  engineJson Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([fen, depth, multipv])
+}
+
+model LichessMoveCache {
+  id          String   @id @default(cuid())
+  fen         String
+  ratingBucket String
+  movesJson   Json
+  createdAt   DateTime @default(now())
+
+  @@unique([fen, ratingBucket])
+}
+
+model PlayerGame {
+  id         String   @id @default(cuid())
+  username   String
+  pgn        String   @db.Text
+  parsedJson Json
+  createdAt  DateTime @default(now())
+}
+
+model LineAnalysis {
+  id          String   @id @default(cuid())
+  rootFen     String
+  lineMoves   Json     // array of moves
+  score       Float
+  metricsJson Json?
+  createdAt   DateTime @default(now())
+}
+
+model PrepProject {
+  id                String   @id @default(cuid())
+  opponentUsername  String
+  color             String   // "white" | "black" — preparer's color
+  ratingBucket      String   // e.g. "1600-1800"
+  status            String   @default("active") // "active" | "archived"
+  timeClass         String?  // e.g. "blitz" | "rapid" | "all"
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  nodes OpeningTreeNode[]
+}
+
+model OpeningTreeNode {
+  id              String    @id @default(cuid())
+  projectId       String
+  fen             String
+  move            String    // SAN move leading to this node from parent
+  parentNodeId    String?
+  gamesCount     Int       @default(0)
+  riskScore      Float?
+  analysisStatus  String    @default("UNSCANNED") // UNSCANNED | RISK_SCANNED | ANALYSIS_RUNNING | ANALYZED_NO_TRAPS | ANALYZED_WITH_TRAPS
+  trapCount       Int       @default(0)
+  lastAnalyzedAt  DateTime?
+  lastJobId       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project PrepProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent  OpeningTreeNode?  @relation("NodeToParent", fields: [parentNodeId], references: [id], onDelete: SetNull)
+  children OpeningTreeNode[] @relation("NodeToParent")
+
+  @@unique([projectId, fen])
+}

@@ -28,6 +28,12 @@ export const CACHE_CURRENT_MONTH_TTL = 3600; // 1 hour
 /** How long Lichess opening explorer responses stay cached. */
 export const CACHE_OPENING_EXPLORER_TTL = 7 * 86400; // 7 days
 
+/** Redis cache TTL for engine analysis (PositionCache). */
+export const CACHE_ENGINE_TTL = 30 * 86400; // 30 days
+
+/** Redis cache TTL for Lichess human moves (LichessMoveCache). */
+export const CACHE_LICHESS_TTL = 7 * 86400; // 7 days
+
 // ---------------------------------------------------------------------------
 // Analysis – openings
 // ---------------------------------------------------------------------------
@@ -116,8 +122,11 @@ export const WEAKNESS_TILT_MIN_GAMES = 20;
 // Defaults
 // ---------------------------------------------------------------------------
 
-/** Default number of months of game history to fetch. */
+/** Default number of months of game history to fetch (e.g. for player stats). */
 export const DEFAULT_MONTHS_BACK = 6;
+
+/** Months of games for prep projects. 0 = all games; N = last N months. */
+export const PREP_MONTHS_BACK = 0;
 
 /** Stockfish fallback depth when using chess-api.com. */
 export const EVAL_FALLBACK_DEPTH = 16;
@@ -161,3 +170,132 @@ export const PREP_TOP_EVAL_COUNT = 5;
 
 /** Number of top suggestions to build full lines for. */
 export const PREP_TOP_LINE_COUNT = 3;
+
+// ---------------------------------------------------------------------------
+// Line analysis (job queue)
+// ---------------------------------------------------------------------------
+
+/** Engine depth for line analysis. */
+export const LINE_ANALYSIS_DEPTH = 18;
+
+/** Multi-PV count for candidate moves. */
+export const LINE_ANALYSIS_MULTIPV = 5;
+
+/** Half-move depth to expand each line. */
+export const LINE_ANALYSIS_LINE_DEPTH = 6;
+
+/** Top N candidate moves to expand into lines. */
+export const LINE_ANALYSIS_TOP_MOVES = 5;
+
+/** Default Lichess rating bucket for human stats. */
+export const LINE_ANALYSIS_RATING_BUCKET = "1600-1800";
+
+// ---------------------------------------------------------------------------
+// Line analysis – opponent-constrained expansion
+// ---------------------------------------------------------------------------
+
+/** Min opponent move probability to expand a branch (e.g. 5%). */
+export const OPPONENT_MIN_MOVE_PROBABILITY = 0.05;
+
+/** If one move has probability >= this, treat as forced (only expand that move). */
+export const OPPONENT_FORCED_BRANCH_THRESHOLD = 0.7;
+
+/** Weight for player (Chess.com) data when blending with Lichess (0–1). */
+export const OPPONENT_PLAYER_WEIGHT = 0.8;
+
+/** Weight for Lichess data when blending with player (0–1). Player + Lichess = 1. */
+export const OPPONENT_LICHESS_WEIGHT = 0.2;
+
+/** Min probability that opponent enters the line; below this we do not store. */
+export const LINE_ANALYSIS_MIN_OPPONENT_ENTRY_PROBABILITY = 0.05;
+
+/** Score weight for opponent move probability (higher = more realistic line). */
+export const LINE_SCORE_WEIGHT_OPPONENT_PROBABILITY = 20;
+
+/** Score penalty weight for opponent branching (more options = worse). */
+export const LINE_SCORE_WEIGHT_BRANCHING = 10;
+
+// ---------------------------------------------------------------------------
+// Trap metrics (Phase 1 — trap pipeline)
+// ---------------------------------------------------------------------------
+
+/** Moves within this many cp of best count as "near best". */
+export const MARGIN_NEAR_BEST_CP = 50;
+
+/** Margin used when only one move in multipv (only-move signal). */
+export const ONLY_MOVE_MARGIN_CP = 500;
+
+/** Eval drop (cp) assumed for a move not in multipv. */
+export const TRAP_DEFAULT_MOVE_EVAL_DROP_CP = 100;
+
+/** Our eval (cp) above which position is "clearly winning". */
+export const TRAP_WINNING_CP = 200;
+
+/** Early bonus at critical index 0 (max). */
+export const EARLY_BONUS_MAX = 50;
+
+/** Early bonus decay per half-move (linear). */
+export const EARLY_BONUS_DECAY_PER_HALFMOVE = 5;
+
+// ---------------------------------------------------------------------------
+// Trap detection (Phase 2 — isTrapNode thresholds)
+// ---------------------------------------------------------------------------
+
+/** Min margin (cp) between best and second-best for trap. */
+export const TRAP_DETECTION_MARGIN_CP = 80;
+
+/** Min narrowness (1/n_near_best) for trap. */
+export const TRAP_DETECTION_NARROWNESS_MIN = 0.6;
+
+/** Min probability opponent deviates from best move. */
+export const TRAP_DETECTION_P_DEVIATE_MIN = 0.4;
+
+/** Min expected mistake cp for trap. */
+export const TRAP_DETECTION_EXPECTED_MISTAKE_CP = 80;
+
+/** Min expected eval swing (cp) for trap. */
+export const TRAP_DETECTION_EXPECTED_SWING_CP = 80;
+
+/** Min probability we are winning after opponent mistake. */
+export const TRAP_DETECTION_P_WINNING_MIN = 0.5;
+
+/** Min entry probability (path) for trap. */
+export const TRAP_DETECTION_ENTRY_PROBABILITY_MIN = 0.02;
+
+// ---------------------------------------------------------------------------
+// Root move selection (Phase 3 — trap-oriented candidates)
+// ---------------------------------------------------------------------------
+
+/** Root candidate: max count returned. */
+export const ROOT_CANDIDATES_MAX = 5;
+
+/** Min engine eval (cp) to consider a root move. */
+export const ROOT_MIN_EVAL_CP = -50;
+
+/** Min forcing margin or expected mistake cp (either) to consider a root move. */
+export const ROOT_MIN_MARGIN_OR_MISTAKE_CP = 40;
+
+// ---------------------------------------------------------------------------
+// Trap-oriented expansion (Phase 4)
+// ---------------------------------------------------------------------------
+
+/** Max half-moves (plies) for trap-oriented expansion. */
+export const MAX_TRAP_DEPTH = 12;
+
+/** Don't terminate the line at a trap node until the line has at least this many half-moves (avoids cutting off after 1 preparer move). */
+export const TRAP_MIN_HALFMOVES_BEFORE_TERMINAL = 4;
+
+/** Min opponent move probability to expand a branch in trap expansion. */
+export const TRAP_EXPANSION_MIN_OPPONENT_PROB = 0.1;
+
+/** When Lichess data exists, only expand opponent moves that have at least this share in the population (so we don't suggest lines relying on moves played by e.g. 2% of players). */
+export const TRAP_EXPANSION_MIN_LICHESS_PROB = 0.05;
+
+/** Prune branch when entry probability drops below this. */
+export const TRAP_EXPANSION_MIN_ENTRY_PROB = 0.02;
+
+/** At each preparer node (after root), consider up to this many engine moves; 1 = only best. */
+export const PREPARER_CANDIDATES_PER_NODE = 3;
+
+/** Only consider preparer moves within this many cp of the best move. */
+export const PREPARER_MAX_EVAL_GAP_CP = 50;

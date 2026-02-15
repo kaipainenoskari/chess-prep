@@ -3,6 +3,7 @@
 import type { OpeningNode } from "@/lib/types";
 import { formatMoveLabel } from "@/lib/opening-tree";
 import WinRateBar from "@/components/WinRateBar";
+import NodeStatusBadge from "./NodeStatusBadge";
 
 // ---- Small display components kept co-located ----
 
@@ -55,6 +56,7 @@ interface MoveExplorerProps {
   depth: number;
   onSelectMove: (childIndex: number) => void;
   onHoverMove: (childIndex: number | null) => void;
+  showPrepStatus?: boolean;
 }
 
 export default function MoveExplorer({
@@ -62,6 +64,7 @@ export default function MoveExplorer({
   depth,
   onSelectMove,
   onHoverMove,
+  showPrepStatus = false,
 }: MoveExplorerProps) {
   const children = node.children;
   const totalGames = children.reduce((sum, c) => sum + c.games, 0);
@@ -85,6 +88,7 @@ export default function MoveExplorer({
         <span className="w-[80px] shrink-0">Result</span>
         <span className="w-10 text-right shrink-0">Win%</span>
         <span className="w-14 text-right shrink-0">vs Avg</span>
+        {showPrepStatus && <span className="w-6 shrink-0" />}
       </div>
 
       {/* Rows */}
@@ -165,6 +169,16 @@ export default function MoveExplorer({
                 <span className="text-xs text-gray-700">&mdash;</span>
               )}
             </div>
+
+            {/* Prep status */}
+            {showPrepStatus && (
+              <div className="w-6 shrink-0 flex justify-center">
+                <NodeStatusBadge
+                  status={child.analysisStatus}
+                  trapCount={child.trapCount}
+                />
+              </div>
+            )}
           </button>
         );
       })}
