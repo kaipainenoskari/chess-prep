@@ -104,7 +104,20 @@ export interface OpeningNode {
   mergedGames?: number;
   mergedWinRate?: number;
   children: OpeningNode[];
+  // Prep project node state (when loaded in a prep project)
+  analysisStatus?: AnalysisStatus;
+  riskScore?: number;
+  trapCount?: number;
+  lastAnalyzedAt?: string; // ISO date
+  lastJobId?: string | null;
 }
+
+export type AnalysisStatus =
+  | "UNSCANNED"
+  | "RISK_SCANNED"
+  | "ANALYSIS_RUNNING"
+  | "ANALYZED_NO_TRAPS"
+  | "ANALYZED_WITH_TRAPS";
 
 export interface OpeningRepertoire {
   asWhite: OpeningNode;

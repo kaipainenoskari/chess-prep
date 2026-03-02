@@ -216,3 +216,51 @@ export function unwrap<T>(v: Validated<T>): T {
   if (!v.ok) throw new Error("Tried to unwrap a failed validation");
   return v.data;
 }
+
+// ---------------------------------------------------------------------------
+// Prep project validators
+// ---------------------------------------------------------------------------
+
+const PREP_COLORS = ["white", "black"] as const;
+export type PrepColor = (typeof PREP_COLORS)[number];
+
+export function validatePrepColor(raw: string | null): Validated<PrepColor> {
+  const value = (raw ?? "").toLowerCase() as PrepColor;
+  if (!PREP_COLORS.includes(value)) {
+    return {
+      ok: false,
+      errors: [
+        {
+          field: "color",
+          message: `color must be one of: ${PREP_COLORS.join(", ")}.`,
+        },
+      ],
+    };
+  }
+  return { ok: true, data: value };
+}
+
+/** Rating bucket format: e.g. "1600-1800". */
+const RATING_BUCKET_REGEX = /^\d{3,4}-\d{3,4}$/;
+
+export function validateRatingBucket(raw: string | null): Validated<string> {
+  if (!raw || raw.trim().length === 0) {
+    return {
+      ok: false,
+      errors: [{ field: "ratingBucket", message: "ratingBucket is required." }],
+    };
+  }
+  const value = raw.trim();
+  if (!RATING_BUCKET_REGEX.test(value)) {
+    return {
+      ok: false,
+      errors: [
+        {
+          field: "ratingBucket",
+          message: "ratingBucket must be like 1600-1800.",
+        },
+      ],
+    };
+  }
+  return { ok: true, data: value };
+}

@@ -19,6 +19,7 @@ import { ratingToBrackets } from "@/lib/analysis/prep";
 import BoardPanel from "./BoardPanel";
 import MoveExplorer from "./MoveExplorer";
 import MoveBreadcrumb from "./MoveBreadcrumb";
+import NodeActions from "./NodeActions";
 import PrepExplorer from "./PrepExplorer";
 
 // Dot style for empty destination squares
@@ -41,11 +42,19 @@ const SELECTED_SQUARE_STYLE: Record<string, string | number> = {
 export default function OpeningRepertoire({
   openings,
   stats,
+  projectId,
+  onRefetchProject,
+  initialTab: initialTabProp,
+  hideColorTabs,
 }: {
   openings: OpeningRepertoireType;
   stats?: ChessComStats;
+  projectId?: string;
+  onRefetchProject?: () => void;
+  initialTab?: "white" | "black";
+  hideColorTabs?: boolean;
 }) {
-  const [tab, setTab] = useState<"white" | "black">("white");
+  const [tab, setTab] = useState<"white" | "black">(initialTabProp ?? "white");
   const [path, setPath] = useState<number[]>([]);
   const [forwardStack, setForwardStack] = useState<number[][]>([]);
   const [hoveredChildIndex, setHoveredChildIndex] = useState<number | null>(null);
@@ -334,27 +343,31 @@ export default function OpeningRepertoire({
             Prep
           </button>
 
-          {/* Color tabs */}
-          <div className="flex gap-1 bg-chess-bg rounded-lg p-1">
-            <button
-              onClick={() => switchTab("white")}
-              className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                tab === "white" ? "bg-white text-black" : "text-gray-400 hover:text-white"
-              }`}
-            >
-              As White ({openings.asWhite.games})
-            </button>
-            <button
-              onClick={() => switchTab("black")}
-              className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                tab === "black"
-                  ? "bg-gray-700 text-white"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              As Black ({openings.asBlack.games})
-            </button>
-          </div>
+          {/* Color tabs (hidden in prep project single-tree view) */}
+          {!hideColorTabs && (
+            <div className="flex gap-1 bg-chess-bg rounded-lg p-1">
+              <button
+                onClick={() => switchTab("white")}
+                className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                  tab === "white"
+                    ? "bg-white text-black"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                As White ({openings.asWhite.games})
+              </button>
+              <button
+                onClick={() => switchTab("black")}
+                className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                  tab === "black"
+                    ? "bg-gray-700 text-white"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                As Black ({openings.asBlack.games})
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -385,6 +398,14 @@ export default function OpeningRepertoire({
           {/* Right panel: Move explorer */}
           <div className="flex-1 min-w-0 flex flex-col">
             <MoveBreadcrumb root={root} path={path} onNavigate={navigateTo} />
+
+            {projectId && onRefetchProject && (
+              <NodeActions
+                projectId={projectId}
+                currentNode={currentNode}
+                onRefetchProject={onRefetchProject}
+              />
+            )}
 
             {prepMode && (
               <div className="text-xs text-chess-accent/70 mb-1 flex items-center gap-1">
@@ -417,6 +438,7 @@ export default function OpeningRepertoire({
                     depth={path.length}
                     onSelectMove={selectMove}
                     onHoverMove={handleHoverMove}
+                    showPrepStatus={Boolean(projectId)}
                   />
                 )}
               </div>

@@ -6,6 +6,8 @@ import {
   validateFen,
   validateSpeeds,
   validateRatings,
+  validatePrepColor,
+  validateRatingBucket,
   collectErrors,
   unwrap,
 } from "./validation";
@@ -141,6 +143,51 @@ describe("validateRatings", () => {
 
   it("rejects arbitrary number", () => {
     expect(validateRatings("1500").ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validatePrepColor
+// ---------------------------------------------------------------------------
+describe("validatePrepColor", () => {
+  it("accepts 'white' and 'black'", () => {
+    expect(unwrap(validatePrepColor("white"))).toBe("white");
+    expect(unwrap(validatePrepColor("black"))).toBe("black");
+  });
+
+  it("lowercases the input", () => {
+    expect(unwrap(validatePrepColor("WHITE"))).toBe("white");
+  });
+
+  it("rejects null or empty", () => {
+    expect(validatePrepColor(null).ok).toBe(false);
+    expect(validatePrepColor("").ok).toBe(false);
+  });
+
+  it("rejects invalid color", () => {
+    expect(validatePrepColor("red").ok).toBe(false);
+    expect(validatePrepColor("both").ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateRatingBucket
+// ---------------------------------------------------------------------------
+describe("validateRatingBucket", () => {
+  it("accepts format like 1600-1800", () => {
+    expect(unwrap(validateRatingBucket("1600-1800"))).toBe("1600-1800");
+    expect(unwrap(validateRatingBucket("1200-1400"))).toBe("1200-1400");
+  });
+
+  it("rejects null or empty", () => {
+    expect(validateRatingBucket(null).ok).toBe(false);
+    expect(validateRatingBucket("").ok).toBe(false);
+  });
+
+  it("rejects invalid format", () => {
+    expect(validateRatingBucket("1600").ok).toBe(false);
+    expect(validateRatingBucket("1600_1800").ok).toBe(false);
+    expect(validateRatingBucket("x-y").ok).toBe(false);
   });
 });
 
