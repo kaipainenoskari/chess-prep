@@ -19,10 +19,18 @@ export async function GET(
     }
 
     const state = await job.getState();
+    const progressRaw = job.progress;
     const response: {
       id: string;
       state: string;
-      progress?: number;
+      progress?:
+        | number
+        | {
+            current?: number;
+            total?: number;
+            estimatedPositions?: number;
+            estimatedTimeMs?: number;
+          };
       result?: unknown;
       failedReason?: string;
       lineAnalysisId?: string;
@@ -30,7 +38,8 @@ export async function GET(
       id: job.id ?? id,
       state,
     };
-    if (job.progress !== undefined) response.progress = job.progress as number;
+    if (progressRaw !== undefined)
+      response.progress = progressRaw as typeof response.progress;
     if (job.returnvalue !== undefined) {
       response.result = job.returnvalue;
       const r = job.returnvalue as { lineAnalysisId?: string };

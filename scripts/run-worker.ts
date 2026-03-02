@@ -15,10 +15,10 @@ const connection = {
   maxRetriesPerRequest: null as number | null,
 };
 
-const worker = new Worker<{ rootFen: string }>(
+const worker = new Worker<{ rootFen: string; projectId?: string }>(
   QUEUE_NAME,
   async (job) => {
-    return processLineAnalysisJob({ rootFen: job.data.rootFen });
+    return processLineAnalysisJob(job.data, job);
   },
   { connection },
 );

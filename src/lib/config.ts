@@ -171,6 +171,18 @@ export const PREP_TOP_EVAL_COUNT = 5;
 /** Number of top suggestions to build full lines for. */
 export const PREP_TOP_LINE_COUNT = 3;
 
+/** Min human win rate (0–1) to treat a line as "practically winning" when engine says worse. */
+export const PREP_PRACTICAL_WIN_RATE_MIN = 0.55;
+
+/** Allow root/preparer moves with engine eval down to this (cp) when human win rate is above threshold. */
+export const PREP_ENGINE_FLOOR_PRACTICAL = -350;
+
+/** Auto-enqueue line-analysis when user first visits an unscanned node. */
+export const PREP_AUTO_ANALYZE_ON_VISIT = true;
+
+/** Max analyze-node jobs to auto-enqueue per session (or per project) when visiting nodes. */
+export const PREP_MAX_AUTO_ANALYZE_PER_SESSION = 10;
+
 // ---------------------------------------------------------------------------
 // Line analysis (job queue)
 // ---------------------------------------------------------------------------
@@ -183,6 +195,15 @@ export const LINE_ANALYSIS_MULTIPV = 5;
 
 /** Half-move depth to expand each line. */
 export const LINE_ANALYSIS_LINE_DEPTH = 6;
+
+/** Prep expansion: half-move depth (used for prep projects). */
+export const PREP_EXPANSION_DEPTH = 8;
+
+/** Prep: max root candidates to expand (caps total lines per FEN). */
+export const PREP_MAX_ROOT_CANDIDATES = 3;
+
+/** Estimated ms per position for line-analysis ETA (uncached). */
+export const ESTIMATED_MS_PER_POSITION = 3000;
 
 /** Top N candidate moves to expand into lines. */
 export const LINE_ANALYSIS_TOP_MOVES = 5;
@@ -198,7 +219,16 @@ export const LINE_ANALYSIS_RATING_BUCKET = "1600-1800";
 export const OPPONENT_MIN_MOVE_PROBABILITY = 0.05;
 
 /** If one move has probability >= this, treat as forced (only expand that move). */
-export const OPPONENT_FORCED_BRANCH_THRESHOLD = 0.7;
+export const OPPONENT_FORCED_BRANCH_THRESHOLD = 0.75;
+
+/** Max opponent moves to expand per position (1 = only most likely, 2 = allow one alternative). */
+export const OPPONENT_MAX_BRANCHES = 2;
+
+/** Min probability for a second opponent branch when no move reaches forced threshold. */
+export const OPPONENT_SECOND_BRANCH_MIN_PROB = 0.15;
+
+/** Min opponent games at this FEN to use player-only distribution; below this use Lichess only. */
+export const OPPONENT_MIN_GAMES_FOR_PLAYER_ONLY = 4;
 
 /** Weight for player (Chess.com) data when blending with Lichess (0–1). */
 export const OPPONENT_PLAYER_WEIGHT = 0.8;
@@ -296,6 +326,9 @@ export const TRAP_EXPANSION_MIN_ENTRY_PROB = 0.02;
 
 /** At each preparer node (after root), consider up to this many engine moves; 1 = only best. */
 export const PREPARER_CANDIDATES_PER_NODE = 3;
+
+/** At preparer nodes (after root): take up to this many moves by Lichess human win rate (practical moves). */
+export const PREPARER_TOP_HUMAN_MOVES = 5;
 
 /** Only consider preparer moves within this many cp of the best move. */
 export const PREPARER_MAX_EVAL_GAP_CP = 50;

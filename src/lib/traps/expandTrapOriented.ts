@@ -15,6 +15,11 @@ import {
   TRAP_MIN_HALFMOVES_BEFORE_TERMINAL,
   PREPARER_CANDIDATES_PER_NODE,
   PREPARER_MAX_EVAL_GAP_CP,
+  OPPONENT_FORCED_BRANCH_THRESHOLD,
+  OPPONENT_MAX_BRANCHES,
+  OPPONENT_SECOND_BRANCH_MIN_PROB,
+  PREPARER_TOP_HUMAN_MOVES,
+  PREP_MIN_POPULATION_GAMES,
 } from "@/lib/config";
 
 const LOG_TRAP_EXPANSION =
@@ -49,6 +54,8 @@ export interface ExpandTrapOrientedParams {
   initialMove: string;
   preparerColor: "white" | "black";
   opponentProfile: OpponentProfile;
+  /** Optional max half-move depth; defaults to MAX_TRAP_DEPTH. */
+  maxDepth?: number;
 }
 
 function sideToMove(fen: string): "w" | "b" {
@@ -156,6 +163,15 @@ async function expandStep(
       engineResult,
       moveDistribution: dist,
       entryProbability,
+      humanWinRateAfterMistake: (() => {
+        let sum = 0;
+        for (const { move, probability } of dist) {
+          const stat = humanResult.moves.find((m) => moveMatches(m.move, move));
+          const oppWinRate = stat?.winrate ?? 0.5;
+          sum += probability * (1 - oppWinRate);
+        }
+        return sum > 0 ? sum : undefined;
+      })(),
     });
 
     if (trapResult.isTrap && lineMoves.length >= TRAP_MIN_HALFMOVES_BEFORE_TERMINAL) {
@@ -244,13 +260,21 @@ async function expandStep(
       ];
     }
 
-    // Opponent: only their most probable move (prep against what they're most likely to play)
-    const mostProbable = allowed[0];
-    const toExpand = mostProbable ? [mostProbable] : [];
+    const forcedMove = allowed.find(
+      (m) => m.probability >= OPPONENT_FORCED_BRANCH_THRESHOLD,
+    );
+    const toExpand = forcedMove
+      ? [forcedMove]
+      : allowed
+          .filter((m) => m.probability >= OPPONENT_SECOND_BRANCH_MIN_PROB)
+          .slice(0, OPPONENT_MAX_BRANCHES);
+
+    // Opponent: expand only forced move (e.g. 75%) or at most OPPONENT_MAX_BRANCHES by probability
+    const firstToExpand = toExpand[0];
     log("opponent expanding", {
-      move: mostProbable?.move,
-      distProbability: mostProbable?.probability,
-      lichessProb: mostProbable ? lichessProb(mostProbable.move) : undefined,
+      move: firstToExpand?.move,
+      distProbability: firstToExpand?.probability,
+      lichessProb: firstToExpand ? lichessProb(firstToExpand.move) : undefined,
       lineMoves: lineMoves.slice(-4),
     });
 
@@ -292,7 +316,7 @@ async function expandStep(
     return out;
   }
 
-  // Preparer's turn: consider multiple candidate moves (top N within eval gap)
+  // Preparer's turn: prefer top moves by Lichess human win rate (practical); fallback to engine
   const [engineResult, humanResult] = await Promise.all([
     analyzePosition(fenNorm, LINE_ANALYSIS_DEPTH, LINE_ANALYSIS_MULTIPV),
     getHumanMoves(fenNorm, options.opponentProfile.ratingBucket),
@@ -319,11 +343,34 @@ async function expandStep(
     const fixed = bestMoves.find((m) => moveMatches(m.move, initialMove)) ?? bestMoves[0];
     candidates = [fixed];
   } else {
-    const bestEval = bestMoves[0].eval;
-    const minEval = bestEval - PREPARER_MAX_EVAL_GAP_CP;
-    candidates = bestMoves
-      .filter((m) => m.eval >= minEval)
-      .slice(0, PREPARER_CANDIDATES_PER_NODE);
+    const withEnoughGames = humanResult.moves.filter(
+      (m) => m.games >= PREP_MIN_POPULATION_GAMES,
+    );
+    if (withEnoughGames.length > 0) {
+      const sortedByWinRate = [...withEnoughGames].sort((a, b) => b.winrate - a.winrate);
+      const topHuman = sortedByWinRate
+        .slice(0, PREPARER_TOP_HUMAN_MOVES)
+        .map((m) => m.move);
+      candidates = topHuman
+        .map((move) => {
+          const eng = bestMoves.find((m) => moveMatches(m.move, move));
+          return eng ? { move: eng.move, eval: eng.eval } : null;
+        })
+        .filter((c): c is { move: string; eval: number } => c != null);
+      if (candidates.length === 0) {
+        const bestEval = bestMoves[0].eval;
+        const minEval = bestEval - PREPARER_MAX_EVAL_GAP_CP;
+        candidates = bestMoves
+          .filter((m) => m.eval >= minEval)
+          .slice(0, PREPARER_CANDIDATES_PER_NODE);
+      }
+    } else {
+      const bestEval = bestMoves[0].eval;
+      const minEval = bestEval - PREPARER_MAX_EVAL_GAP_CP;
+      candidates = bestMoves
+        .filter((m) => m.eval >= minEval)
+        .slice(0, PREPARER_CANDIDATES_PER_NODE);
+    }
   }
 
   log("preparer candidates", {
@@ -387,27 +434,20 @@ async function expandStep(
 export async function expandTrapOriented(
   params: ExpandTrapOrientedParams,
 ): Promise<TrapLine[]> {
-  const { rootFen, initialMove, preparerColor, opponentProfile } = params;
+  const { rootFen, initialMove, preparerColor, opponentProfile, maxDepth } = params;
   const fenNorm = normalizeFenForLookup(rootFen);
+  const depth = maxDepth ?? MAX_TRAP_DEPTH;
 
   log("expandTrapOriented start", {
     initialMove,
     preparerColor,
-    maxDepth: MAX_TRAP_DEPTH,
+    maxDepth: depth,
   });
 
-  const lines = await expandStep(
-    fenNorm,
-    MAX_TRAP_DEPTH,
-    initialMove,
-    true,
-    [],
-    [],
-    [],
-    [],
-    [],
-    { preparerColor, opponentProfile },
-  );
+  const lines = await expandStep(fenNorm, depth, initialMove, true, [], [], [], [], [], {
+    preparerColor,
+    opponentProfile,
+  });
 
   log("expandTrapOriented done", {
     linesCount: lines.length,

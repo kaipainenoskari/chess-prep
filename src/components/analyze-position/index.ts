@@ -5,4 +5,4 @@ export { useAnalyzePosition } from "./useAnalyzePosition";
 export { useJobStatus } from "./useJobStatus";
 export { useLinesByFen } from "./useLinesByFen";
 export type { LineAnalysisItem } from "./useLinesByFen";
-export type { JobState } from "./useJobStatus";
+export type { JobState, JobProgress } from "./useJobStatus";

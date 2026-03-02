@@ -17,6 +17,7 @@ import {
   TRAP_DETECTION_EXPECTED_SWING_CP,
   TRAP_DETECTION_P_WINNING_MIN,
   TRAP_DETECTION_ENTRY_PROBABILITY_MIN,
+  PREP_PRACTICAL_WIN_RATE_MIN,
 } from "@/lib/config";
 
 /** Opponent move distribution: list of move + probability (e.g. from getOpponentMoveDistribution). */
@@ -44,13 +45,17 @@ function forcingGapCp(engineResult: EngineAnalysisResult): number {
 /**
  * Determines whether a position (opponent to move) is a trap node.
  * Uses Phase 1 metrics and config thresholds. Returns metrics even when isTrap is false.
+ * When humanWinRateAfterMistake is provided and >= PREP_PRACTICAL_WIN_RATE_MIN, counts as "winning" for trap (practical win).
  */
 export function isTrapNode(params: {
   engineResult: EngineAnalysisResult;
   moveDistribution: OpponentMoveDistribution;
   entryProbability: number;
+  /** Optional: weighted preparer win rate after opponent mistake (from Lichess); when >= threshold, treat as practically winning. */
+  humanWinRateAfterMistake?: number | null;
 }): TrapNodeResult {
-  const { engineResult, moveDistribution, entryProbability } = params;
+  const { engineResult, moveDistribution, entryProbability, humanWinRateAfterMistake } =
+    params;
 
   const metrics = {
     marginCp: marginCp(engineResult),
@@ -61,6 +66,9 @@ export function isTrapNode(params: {
     pWinningAfterMistake: probabilityWinningAfterMistake(engineResult, moveDistribution),
   };
 
+  const practicallyWinning =
+    humanWinRateAfterMistake != null &&
+    humanWinRateAfterMistake >= PREP_PRACTICAL_WIN_RATE_MIN;
   const gap = forcingGapCp(engineResult);
   const isTrap =
     gap >= TRAP_DETECTION_MARGIN_CP &&
@@ -68,7 +76,8 @@ export function isTrapNode(params: {
     metrics.pDeviate >= TRAP_DETECTION_P_DEVIATE_MIN &&
     metrics.expectedMistakeCp >= TRAP_DETECTION_EXPECTED_MISTAKE_CP &&
     metrics.expectedSwing >= TRAP_DETECTION_EXPECTED_SWING_CP &&
-    metrics.pWinningAfterMistake >= TRAP_DETECTION_P_WINNING_MIN &&
+    (metrics.pWinningAfterMistake >= TRAP_DETECTION_P_WINNING_MIN ||
+      practicallyWinning) &&
     entryProbability >= TRAP_DETECTION_ENTRY_PROBABILITY_MIN;
 
   return { isTrap, metrics };

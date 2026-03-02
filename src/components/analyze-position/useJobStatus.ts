@@ -4,9 +4,17 @@ import { useState, useEffect, useCallback } from "react";
 
 export type JobState = "waiting" | "delayed" | "active" | "completed" | "failed";
 
+export interface JobProgress {
+  current?: number;
+  total?: number;
+  estimatedPositions?: number;
+  estimatedTimeMs?: number;
+}
+
 export interface JobStatusResult {
   state: JobState | null;
   result: { lineAnalysisId?: string; linesStored?: number } | null;
+  progress: JobProgress | null;
   failedReason: string | null;
   error: string | null;
   refetch: () => Promise<void>;
@@ -17,6 +25,7 @@ const POLL_INTERVAL_MS = 2000;
 export function useJobStatus(jobId: string | null): JobStatusResult {
   const [state, setState] = useState<JobState | null>(null);
   const [result, setResult] = useState<JobStatusResult["result"]>(null);
+  const [progress, setProgress] = useState<JobProgress | null>(null);
   const [failedReason, setFailedReason] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,6 +33,7 @@ export function useJobStatus(jobId: string | null): JobStatusResult {
     if (!jobId) {
       setState(null);
       setResult(null);
+      setProgress(null);
       setFailedReason(null);
       setError(null);
       return;
@@ -36,6 +46,7 @@ export function useJobStatus(jobId: string | null): JobStatusResult {
           setError(null);
           setState("completed");
           setResult(null);
+          setProgress(null);
           setFailedReason(null);
           return;
         }
@@ -45,7 +56,18 @@ export function useJobStatus(jobId: string | null): JobStatusResult {
       setError(null);
       const rawState = data.state as JobState | undefined;
       const rawResult = data.result as JobStatusResult["result"] | undefined;
+      const rawProgress = data.progress as JobProgress | undefined;
       setResult(rawResult ?? null);
+      setProgress(
+        rawProgress != null && typeof rawProgress === "object"
+          ? {
+              current: rawProgress.current,
+              total: rawProgress.total,
+              estimatedPositions: rawProgress.estimatedPositions,
+              estimatedTimeMs: rawProgress.estimatedTimeMs,
+            }
+          : null,
+      );
       setFailedReason(data.failedReason ?? null);
       setState(rawResult != null ? "completed" : (rawState ?? null));
     } catch (e) {
@@ -64,5 +86,5 @@ export function useJobStatus(jobId: string | null): JobStatusResult {
     };
   }, [jobId, fetchStatus]);
 
-  return { state, result, failedReason, error, refetch: fetchStatus };
+  return { state, result, progress, failedReason, error, refetch: fetchStatus };
 }

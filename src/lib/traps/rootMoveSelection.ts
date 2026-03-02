@@ -6,6 +6,8 @@ import {
   ROOT_CANDIDATES_MAX,
   ROOT_MIN_EVAL_CP,
   ROOT_MIN_MARGIN_OR_MISTAKE_CP,
+  PREP_ENGINE_FLOOR_PRACTICAL,
+  PREP_PRACTICAL_WIN_RATE_MIN,
 } from "@/lib/config";
 
 export type RootCandidate = {
@@ -48,6 +50,8 @@ function computeRootScore(
 export type GetChildPositionData = (move: string) => Promise<{
   engineResult: EngineAnalysisResult;
   opponentDistribution: OpponentMoveDistribution;
+  /** Optional: preparer's human win rate (0–1) at child position for practical boost. */
+  preparerWinRateAtChild?: number | null;
 }>;
 
 /**
@@ -67,10 +71,19 @@ export async function selectRootCandidates(params: {
 
   for (const rootMove of moves) {
     const engineEval = rootMove.eval;
-    if (engineEval < ROOT_MIN_EVAL_CP) continue;
+    const {
+      engineResult: childEngine,
+      opponentDistribution: childDist,
+      preparerWinRateAtChild,
+    } = await getChildPositionData(rootMove.move);
 
-    const { engineResult: childEngine, opponentDistribution: childDist } =
-      await getChildPositionData(rootMove.move);
+    const practicalWin =
+      preparerWinRateAtChild != null &&
+      preparerWinRateAtChild >= PREP_PRACTICAL_WIN_RATE_MIN;
+    const evalOk =
+      engineEval >= ROOT_MIN_EVAL_CP ||
+      (practicalWin && engineEval >= PREP_ENGINE_FLOOR_PRACTICAL);
+    if (!evalOk) continue;
 
     const marginCpVal = forcingGapCp(childEngine);
     const narrownessVal = narrowness(childEngine);
@@ -83,12 +96,15 @@ export async function selectRootCandidates(params: {
       continue;
     }
 
-    const rootScore = computeRootScore(
+    let rootScore = computeRootScore(
       marginCpVal,
       narrownessVal,
       expectedMistakeCpVal,
       engineEval,
     );
+    if (practicalWin && preparerWinRateAtChild != null) {
+      rootScore += (preparerWinRateAtChild - 0.5) * 20;
+    }
 
     candidates.push({
       move: rootMove.move,

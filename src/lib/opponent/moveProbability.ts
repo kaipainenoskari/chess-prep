@@ -3,8 +3,7 @@ import { getOpponentMovesAtFen } from "@/lib/prep/getOpponentMovesAtFen";
 import { getHumanMoves } from "@/lib/lichess/getHumanMoves";
 import { analyzePosition } from "@/lib/engine/analyzePosition";
 import {
-  OPPONENT_PLAYER_WEIGHT,
-  OPPONENT_LICHESS_WEIGHT,
+  OPPONENT_MIN_GAMES_FOR_PLAYER_ONLY,
   LINE_ANALYSIS_DEPTH,
   LINE_ANALYSIS_MULTIPV,
 } from "@/lib/config";
@@ -86,24 +85,6 @@ function lichessMovesToDistribution(
   return map;
 }
 
-/** Blend two distributions by weight. Keys are normalized. */
-function blendDistributions(
-  player: Map<string, { probability: number }>,
-  lichess: Map<string, { probability: number }>,
-  playerWeight: number,
-  lichessWeight: number,
-): Map<string, { probability: number }> {
-  const allKeys = new Set([...player.keys(), ...lichess.keys()]);
-  const out = new Map<string, { probability: number }>();
-  for (const key of allKeys) {
-    const p = player.get(key)?.probability ?? 0;
-    const l = lichess.get(key)?.probability ?? 0;
-    const prob = p * playerWeight + l * lichessWeight;
-    if (prob > 0) out.set(key, { probability: prob });
-  }
-  return out;
-}
-
 /** Engine bestMoves to distribution: softmax-like or top-1. Use simple 1 for best, rest by relative eval. */
 function engineToDistribution(
   bestMoves: { move: string; eval: number }[],
@@ -128,18 +109,32 @@ function engineToDistribution(
 
 /**
  * Get opponent move distribution at a position.
- * Priority: player (Chess.com) > blend with Lichess > Lichess only > engine fallback.
+ * Opponent-first: if opponent has >= OPPONENT_MIN_GAMES_FOR_PLAYER_ONLY games at this FEN, use player only.
+ * Otherwise use Lichess (same strength) only. Engine fallback when no Lichess data.
  */
 export async function getOpponentMoveDistribution(
   fen: string,
   opponentProfile: OpponentProfile,
 ): Promise<MoveProbabilityResult> {
-  const { projectId, ratingBucket, preparerColor: _preparerColor } = opponentProfile;
+  const { projectId, ratingBucket } = opponentProfile;
 
-  let playerDist = new Map<string, { probability: number }>();
+  let playerMoves: { move: string; games: number }[] = [];
   if (projectId) {
-    const playerMoves = await getOpponentMovesAtFen(projectId, fen);
-    playerDist = playerMovesToDistribution(fen, playerMoves);
+    playerMoves = await getOpponentMovesAtFen(projectId, fen);
+  }
+
+  const totalPlayerGames = playerMoves.reduce((s, m) => s + m.games, 0);
+  const playerDist = playerMovesToDistribution(fen, playerMoves);
+  const hasReliablePlayer = totalPlayerGames >= OPPONENT_MIN_GAMES_FOR_PLAYER_ONLY;
+
+  if (hasReliablePlayer && playerDist.size > 0) {
+    const moves: MoveWithProbability[] = [];
+    for (const [moveNorm, { probability }] of playerDist) {
+      if (probability <= 0) continue;
+      moves.push({ move: moveNorm, probability, source: "player" });
+    }
+    moves.sort((a, b) => b.probability - a.probability);
+    return { moves };
   }
 
   let lichessDist = new Map<string, { probability: number }>();
@@ -147,51 +142,43 @@ export async function getOpponentMoveDistribution(
     const lichessResult = await getHumanMoves(fen, ratingBucket);
     lichessDist = lichessMovesToDistribution(lichessResult.moves);
   } catch {
-    // Lichess can fail; continue with player or engine
+    // Lichess can fail; fall back to engine or empty player
   }
 
-  const hasPlayer = playerDist.size > 0;
   const hasLichess = lichessDist.size > 0;
-
-  let dist: Map<string, { probability: number }>;
-  let source: MoveProbabilitySource;
-
-  if (hasPlayer && hasLichess) {
-    dist = blendDistributions(
-      playerDist,
-      lichessDist,
-      OPPONENT_PLAYER_WEIGHT,
-      OPPONENT_LICHESS_WEIGHT,
-    );
-    source = "blended";
-  } else if (hasPlayer) {
-    dist = playerDist;
-    source = "player";
-  } else if (hasLichess) {
-    dist = lichessDist;
-    source = "lichess";
-  } else {
-    const engineResult = await analyzePosition(
-      fen,
-      LINE_ANALYSIS_DEPTH,
-      LINE_ANALYSIS_MULTIPV,
-    );
-    dist = engineToDistribution(
-      engineResult.bestMoves.map((m) => ({ move: m.move, eval: m.eval })),
-    );
-    source = "engine";
+  if (hasLichess) {
+    const moves: MoveWithProbability[] = [];
+    for (const [moveNorm, { probability }] of lichessDist) {
+      if (probability <= 0) continue;
+      moves.push({ move: moveNorm, probability, source: "lichess" });
+    }
+    moves.sort((a, b) => b.probability - a.probability);
+    return { moves };
   }
 
+  if (playerDist.size > 0) {
+    const moves: MoveWithProbability[] = [];
+    for (const [moveNorm, { probability }] of playerDist) {
+      if (probability <= 0) continue;
+      moves.push({ move: moveNorm, probability, source: "player" });
+    }
+    moves.sort((a, b) => b.probability - a.probability);
+    return { moves };
+  }
+
+  const engineResult = await analyzePosition(
+    fen,
+    LINE_ANALYSIS_DEPTH,
+    LINE_ANALYSIS_MULTIPV,
+  );
+  const dist = engineToDistribution(
+    engineResult.bestMoves.map((m) => ({ move: m.move, eval: m.eval })),
+  );
   const moves: MoveWithProbability[] = [];
   for (const [moveNorm, { probability }] of dist) {
     if (probability <= 0) continue;
-    moves.push({
-      move: moveNorm,
-      probability,
-      source,
-    });
+    moves.push({ move: moveNorm, probability, source: "engine" });
   }
   moves.sort((a, b) => b.probability - a.probability);
-
   return { moves };
 }

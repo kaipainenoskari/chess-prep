@@ -27,7 +27,7 @@ function AnalyzePositionContent({ initialRootFen }: { initialRootFen: string | n
     submit,
     reset,
   } = useAnalyzePosition();
-  const { state, failedReason, error: statusError } = useJobStatus(jobId);
+  const { state, progress, failedReason, error: statusError } = useJobStatus(jobId);
 
   const rootFenForLines = state === "completed" ? submittedRootFen : submittedRootFen;
   const {
@@ -95,6 +95,7 @@ function AnalyzePositionContent({ initialRootFen }: { initialRootFen: string | n
           <JobStatusCard
             jobId={jobId}
             state={state}
+            progress={progress}
             failedReason={failedReason}
             error={statusError}
           />

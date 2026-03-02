@@ -11,6 +11,9 @@ import {
   LINE_ANALYSIS_MULTIPV,
   OPPONENT_MIN_MOVE_PROBABILITY,
   OPPONENT_FORCED_BRANCH_THRESHOLD,
+  OPPONENT_MAX_BRANCHES,
+  OPPONENT_SECOND_BRANCH_MIN_PROB,
+  PREP_MIN_POPULATION_GAMES,
 } from "@/lib/config";
 
 export interface ExpandedLine {
@@ -135,7 +138,11 @@ async function expandStep(
     }
 
     const forcedMove = allowed.find((m) => m.probability >= forcedThresh) ?? null;
-    const toExpand = forcedMove ? [forcedMove] : allowed;
+    const toExpand = forcedMove
+      ? [forcedMove]
+      : allowed
+          .filter((m) => m.probability >= OPPONENT_SECOND_BRANCH_MIN_PROB)
+          .slice(0, OPPONENT_MAX_BRANCHES);
 
     const out: ExpandedLine[] = [];
     for (const { move: oppMove, probability } of toExpand) {
@@ -175,17 +182,33 @@ async function expandStep(
     return out;
   }
 
-  // Preparer's turn
+  // Preparer's turn: prefer best move by Lichess human win rate; fallback to engine best
   const [engineResult, humanResult] = await Promise.all([
     analyzePosition(fenNorm, LINE_ANALYSIS_DEPTH, LINE_ANALYSIS_MULTIPV),
     getHumanMoves(fenNorm, options.opponentProfile.ratingBucket),
   ]);
 
-  const moveToPlay =
-    isFirstStep && initialMove
-      ? (engineResult.bestMoves.find((m) => moveMatches(m.move, initialMove)) ??
-        engineResult.bestMoves[0])
-      : engineResult.bestMoves[0];
+  let moveToPlay: { move: string; eval: number } | undefined;
+  if (isFirstStep && initialMove) {
+    moveToPlay =
+      engineResult.bestMoves.find((m) => moveMatches(m.move, initialMove)) ??
+      engineResult.bestMoves[0];
+  } else {
+    const withEnoughGames = humanResult.moves.filter(
+      (m) => m.games >= PREP_MIN_POPULATION_GAMES,
+    );
+    if (withEnoughGames.length > 0) {
+      const bestByWinRate = withEnoughGames.reduce((a, b) =>
+        a.winrate >= b.winrate ? a : b,
+      );
+      const eng = engineResult.bestMoves.find((m) =>
+        moveMatches(m.move, bestByWinRate.move),
+      );
+      moveToPlay = eng ? { move: eng.move, eval: eng.eval } : engineResult.bestMoves[0];
+    } else {
+      moveToPlay = engineResult.bestMoves[0];
+    }
+  }
 
   if (!moveToPlay) {
     const entryProbability =
