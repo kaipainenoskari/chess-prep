@@ -58,6 +58,70 @@ function sortTree(node: OpeningNode): void {
 }
 
 /**
+ * Normalize a FEN for transposition comparison.
+ * Strips halfmove clock (field 5) and fullmove number (field 6)
+ * so positions reached at different move counts still match.
+ */
+export function normalizeFen(fen: string): string {
+  return fen.split(" ").slice(0, 4).join(" ");
+}
+
+/**
+ * Post-process the tree to annotate nodes with transposition-merged stats.
+ * Nodes sharing the same normalized FEN get aggregated games/wins/draws/losses,
+ * stored in `mergedGames` and `mergedWinRate`.
+ */
+export function mergeTranspositions(root: OpeningNode): void {
+  // Pass 1: collect stats per normalized FEN
+  const fenStats = new Map<
+    string,
+    { games: number; wins: number; draws: number; losses: number }
+  >();
+
+  function collect(node: OpeningNode): void {
+    if (node.move !== "root" && node.fen) {
+      const key = normalizeFen(node.fen);
+      const existing = fenStats.get(key);
+      if (existing) {
+        existing.games += node.games;
+        existing.wins += node.wins;
+        existing.draws += node.draws;
+        existing.losses += node.losses;
+      } else {
+        fenStats.set(key, {
+          games: node.games,
+          wins: node.wins,
+          draws: node.draws,
+          losses: node.losses,
+        });
+      }
+    }
+    for (const child of node.children) {
+      collect(child);
+    }
+  }
+
+  collect(root);
+
+  // Pass 2: annotate nodes where merged stats differ from direct stats
+  function annotate(node: OpeningNode): void {
+    if (node.move !== "root" && node.fen) {
+      const key = normalizeFen(node.fen);
+      const merged = fenStats.get(key);
+      if (merged && merged.games > node.games) {
+        node.mergedGames = merged.games;
+        node.mergedWinRate = merged.games > 0 ? merged.wins / merged.games : 0;
+      }
+    }
+    for (const child of node.children) {
+      annotate(child);
+    }
+  }
+
+  annotate(root);
+}
+
+/**
  * Build opening repertoire trees for a player.
  * Splits by colour: games where the player is White vs Black.
  */
@@ -86,6 +150,9 @@ export function buildOpeningRepertoire(
 
   sortTree(whiteRoot);
   sortTree(blackRoot);
+
+  mergeTranspositions(whiteRoot);
+  mergeTranspositions(blackRoot);
 
   return { asWhite: whiteRoot, asBlack: blackRoot };
 }

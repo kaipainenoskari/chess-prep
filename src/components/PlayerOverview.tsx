@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { ChessComProfile, ChessComStats } from "@/lib/types";
 import type { PerformanceStats } from "@/lib/analysis/performance";
 import WinRateBar from "./WinRateBar";
@@ -51,18 +52,22 @@ export default function PlayerOverview({
   profile,
   stats,
   performance,
+  periodLabel,
 }: {
   profile: ChessComProfile;
   stats: ChessComStats;
   performance: PerformanceStats;
+  periodLabel?: string;
 }) {
   return (
     <div className="bg-chess-card border border-chess-border rounded-xl p-6">
       <div className="flex items-start gap-4 mb-6">
         {profile.avatar && (
-          <img
+          <Image
             src={profile.avatar}
             alt={profile.username}
+            width={64}
+            height={64}
             className="w-16 h-16 rounded-lg"
           />
         )}
@@ -85,7 +90,9 @@ export default function PlayerOverview({
         <div className="ml-auto text-right">
           <div className="text-sm text-gray-400">Games analyzed</div>
           <div className="text-2xl font-bold">{performance.totalGames}</div>
-          <div className="text-sm text-gray-400">Last 6 months</div>
+          <div className="text-sm text-gray-400 capitalize">
+            {periodLabel ?? "Last 6 months"}
+          </div>
         </div>
       </div>
 

@@ -63,6 +63,8 @@ export interface ChessComGame {
 
 export type TimeClass = "bullet" | "blitz" | "rapid" | "all";
 
+export type DateRange = "1m" | "3m" | "6m" | "all" | "custom";
+
 export type GameResult = "win" | "loss" | "draw";
 
 export interface ParsedGame {
@@ -98,6 +100,9 @@ export interface OpeningNode {
   populationGames?: number;
   populationWinRate?: number;
   delta?: number; // player winRate - populationWinRate
+  // Transposition-merged stats (across all nodes sharing this FEN)
+  mergedGames?: number;
+  mergedWinRate?: number;
   children: OpeningNode[];
 }
 
@@ -139,6 +144,38 @@ export interface AnalysisResult {
   timeProfile: TimeProfile;
   weaknesses: Weakness[];
   strengths: Weakness[]; // reuse same shape
+}
+
+// ---- Prep mode types ----
+
+export type PrepTag = "surprise" | "weakness" | "gambit" | "sound" | "speculative";
+
+export interface PrepLineMove {
+  move: string;
+  fen: string;
+  isPlayerMove: boolean;
+  populationWinRate?: number;
+  annotation?: string;
+}
+
+export interface PrepSuggestion {
+  move: string; // SAN move
+  score: number; // 0-100 prep score
+  tags: PrepTag[];
+  reasoning: string; // Human explanation
+  populationWinRate: number; // Win rate for preparer at this rating
+  populationGames: number;
+  opponentGames: number; // Times opponent faced this (0 = surprise)
+  opponentWinRate: number | null;
+  engineEval: number | null; // Centipawns from preparer's perspective
+  line: PrepLineMove[]; // Full prep line to study
+}
+
+/** Compact opponent move data sent from client to prep API. */
+export interface OpponentMoveInfo {
+  move: string;
+  games: number;
+  winRate: number;
 }
 
 // Lichess explorer response

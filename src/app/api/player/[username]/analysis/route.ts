@@ -9,6 +9,7 @@ import {
   validateUsername,
   validateMonths,
   validateTimeClass,
+  validateSince,
   collectErrors,
   unwrap,
 } from "@/lib/validation";
@@ -26,7 +27,8 @@ export async function GET(
     const vUser = validateUsername(username);
     const vMonths = validateMonths(searchParams.get("months"));
     const vTime = validateTimeClass(searchParams.get("timeClass"));
-    const errors = collectErrors(vUser, vMonths, vTime);
+    const vSince = validateSince(searchParams.get("since"));
+    const errors = collectErrors(vUser, vMonths, vTime, vSince);
     if (errors) {
       return NextResponse.json({ errors }, { status: 400 });
     }
@@ -34,13 +36,20 @@ export async function GET(
     const lowerUsername = unwrap(vUser);
     const months = unwrap(vMonths);
     const timeClass = unwrap(vTime);
+    const since = unwrap(vSince);
 
     const [{ profile, stats }, rawGames] = await Promise.all([
       fetchProfileCached(lowerUsername),
       fetchAllGamesCached(lowerUsername, months),
     ]);
 
-    const games = parseAllGames(rawGames, lowerUsername);
+    let games = parseAllGames(rawGames, lowerUsername);
+
+    // Apply date-range filter if a `since` timestamp was provided
+    if (since != null) {
+      games = games.filter((g) => g.endTime >= since);
+    }
+
     const openings = buildOpeningRepertoire(games, timeClass);
     const timeProfile = analyzeTimeManagement(games, timeClass);
     const performance = analyzePerformance(games, timeClass);
