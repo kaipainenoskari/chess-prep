@@ -1,11 +1,10 @@
 import { getDb } from "./db";
-import {
-  CHESS_COM_API_BASE,
-  CHESS_COM_USER_AGENT,
-  CACHE_PLAYER_STATS_TTL,
-  CACHE_CURRENT_MONTH_TTL,
-} from "./config";
 import type { ChessComProfile, ChessComStats, ChessComGame } from "./types";
+
+const CHESS_COM_API_BASE = "https://api.chess.com/pub";
+const CHESS_COM_USER_AGENT = process.env.CHESS_COM_USER_AGENT ?? "ChessPrepTool/1.0";
+const CACHE_PLAYER_STATS_TTL = 3600;
+const CACHE_CURRENT_MONTH_TTL = 3600;
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, {

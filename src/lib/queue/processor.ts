@@ -1,32 +1,39 @@
 import { type Job } from "bullmq";
 import { prisma } from "@/lib/prisma";
 import { analyzePosition } from "@/lib/engine/analyzePosition";
-import { expandRealisticLines } from "@/lib/analysis/expandRealisticLines";
 import {
-  computeLineDifficulty,
-  computeOpponentBranchingFactor,
-} from "@/lib/analysis/metrics";
-import { selectRootCandidates } from "@/lib/traps/rootMoveSelection";
-import { expandTrapOriented } from "@/lib/traps/expandTrapOriented";
-import { getOpponentMoveDistribution } from "@/lib/opponent/moveProbability";
+  expandRealisticLines,
+  type ExpandedLine,
+} from "@/lib/analysis/expandRealisticLines";
+import { computePracticalLineScore } from "@/lib/analysis/metrics";
 import { getHumanMoves } from "@/lib/lichess/getHumanMoves";
 import { estimateLineAnalysisWork } from "@/lib/queue/estimateLineAnalysisWork";
 import {
   LINE_ANALYSIS_DEPTH,
   LINE_ANALYSIS_MULTIPV,
   LINE_ANALYSIS_RATING_BUCKET,
-  LINE_ANALYSIS_MIN_OPPONENT_ENTRY_PROBABILITY,
-  PREP_EXPANSION_DEPTH,
-  PREP_MAX_ROOT_CANDIDATES,
-  PREPARER_TOP_HUMAN_MOVES,
-  OPPONENT_MAX_BRANCHES,
+  LINE_ANALYSIS_MIN_ENTRY_PROBABILITY,
+  LINE_ANALYSIS_MIN_PRACTICAL_WIN_RATE,
+  PREP_EXPANSION_MAX_DEPTH,
   ESTIMATED_MS_PER_POSITION,
+  ESTIMATED_PREPARER_BRANCHES,
+  ESTIMATED_OPPONENT_BRANCHES,
+  PREP_MIN_POPULATION_GAMES,
 } from "@/lib/config";
-import { normalizeFenForLookup, applyMoveUci } from "@/lib/fen";
+import { normalizeFenForLookup } from "@/lib/fen";
+
+/** UI-configurable options for line analysis; all optional, config used when omitted. */
+export interface LineAnalysisOptions {
+  ratingBucket?: string;
+  minEntryProbability?: number;
+  minPracticalWinRate?: number;
+  minOpponentProbabilityToExpand?: number;
+}
 
 export interface LineAnalysisJobData {
   rootFen: string;
   projectId?: string;
+  options?: LineAnalysisOptions;
 }
 
 export interface LineAnalysisJobResult {
@@ -36,7 +43,6 @@ export interface LineAnalysisJobResult {
 
 const LOG_LINE_ANALYSIS =
   process.env.LOG_LINE_ANALYSIS === "1" || process.env.DEBUG?.includes("line");
-const USE_TRAP_PIPELINE = process.env.USE_TRAP_PIPELINE === "true";
 
 function log(msg: string, data?: object) {
   if (LOG_LINE_ANALYSIS) {
@@ -46,49 +52,30 @@ function log(msg: string, data?: object) {
 }
 
 /**
- * Job processor: analyze root FEN, expand realistic lines (opponent-constrained), compute difficulty, store.
- * When job is provided, updates progress for UI progress bar.
+ * Job processor: analyze root FEN, expand realistic lines (opponent by probability, Lichess fallback), store.
  */
-const ANALYSIS_STATUS_NO_TRAPS = "ANALYZED_NO_TRAPS";
-const ANALYSIS_STATUS_WITH_TRAPS = "ANALYZED_WITH_TRAPS";
-
 export async function processLineAnalysisJob(
   data: LineAnalysisJobData,
   job?: Job<LineAnalysisJobData, LineAnalysisJobResult> | null,
 ): Promise<LineAnalysisJobResult> {
-  const { rootFen, projectId } = data;
-  const ratingBucket = LINE_ANALYSIS_RATING_BUCKET;
+  const { rootFen, options: jobOptions } = data;
+  const ratingBucket = jobOptions?.ratingBucket ?? LINE_ANALYSIS_RATING_BUCKET;
+  const minEntryProbability =
+    jobOptions?.minEntryProbability ?? LINE_ANALYSIS_MIN_ENTRY_PROBABILITY;
+  const minPracticalWinRate =
+    jobOptions?.minPracticalWinRate ?? LINE_ANALYSIS_MIN_PRACTICAL_WIN_RATE;
+  const minOpponentProbabilityToExpand =
+    jobOptions?.minOpponentProbabilityToExpand ?? undefined;
+
   const rootFenNorm = normalizeFenForLookup(rootFen);
+  const preparerColor: "white" | "black" = "white";
   log("jobStart", {
     rootFenCastlingField: rootFen.trim().split(/\s+/)[2],
     rootFenNormCastlingField: rootFenNorm.split(/\s+/)[2],
   });
 
-  let preparerColor: "white" | "black" = "white";
-  let bucket = ratingBucket;
-  if (projectId) {
-    const project = await (
-      prisma as unknown as {
-        prepProject: {
-          findUnique: (args: {
-            where: { id: string };
-            select: { color: true; ratingBucket: true };
-          }) => Promise<{ color: string; ratingBucket: string } | null>;
-        };
-      }
-    ).prepProject.findUnique({
-      where: { id: projectId },
-      select: { color: true, ratingBucket: true },
-    });
-    if (project) {
-      preparerColor = project.color === "black" ? "black" : "white";
-      if (project.ratingBucket) bucket = project.ratingBucket;
-    }
-  }
-
   const opponentProfile = {
-    projectId,
-    ratingBucket: bucket,
+    ratingBucket,
     preparerColor,
   };
 
@@ -98,201 +85,110 @@ export async function processLineAnalysisJob(
     LINE_ANALYSIS_MULTIPV,
   );
 
-  const rootCandidates = await selectRootCandidates({
-    engineResult,
-    getChildPositionData: async (move) => {
-      const nextFen = applyMoveUci(rootFenNorm, move);
-      if (!nextFen) {
-        return { engineResult: { bestMoves: [] }, opponentDistribution: [] };
-      }
-      const [childEngine, distResult, humanResult] = await Promise.all([
-        analyzePosition(nextFen, LINE_ANALYSIS_DEPTH, LINE_ANALYSIS_MULTIPV),
-        getOpponentMoveDistribution(nextFen, opponentProfile),
-        getHumanMoves(nextFen, bucket).catch(() => ({
-          moves: [] as { games: number; winrate: number }[],
-        })),
-      ]);
-      let preparerWinRateAtChild: number | null = null;
-      if (humanResult.moves.length > 0) {
-        const total = humanResult.moves.reduce((s, m) => s + m.games, 0);
-        if (total > 0) {
-          const opponentAvgWinRate =
-            humanResult.moves.reduce((s, m) => s + m.winrate * m.games, 0) / total;
-          preparerWinRateAtChild = 1 - opponentAvgWinRate;
-        }
-      }
-      return {
-        engineResult: childEngine,
-        opponentDistribution: distResult.moves,
-        preparerWinRateAtChild,
-      };
-    },
-  });
-
-  if (LOG_LINE_ANALYSIS) {
-    console.error(
-      "[TrapPipeline] Selected root candidates:",
-      rootCandidates.map((c) => ({
-        move: c.move,
-        eval: c.eval,
-        marginCp: c.marginCp,
-        rootScore: c.rootScore,
-      })),
-    );
+  // Root candidates: practically best moves by human win rate (population),
+  // with engine best-move fallback when no human data exists.
+  let rootCandidates: { move: string }[] = [];
+  try {
+    const humanRoot = await getHumanMoves(rootFenNorm, ratingBucket);
+    if (humanRoot.moves.length > 0) {
+      const withGames = humanRoot.moves.filter(
+        (m) => m.games >= PREP_MIN_POPULATION_GAMES,
+      );
+      const source = withGames.length > 0 ? withGames : humanRoot.moves;
+      const sorted = [...source].sort((a, b) => {
+        if (b.winrate !== a.winrate) return b.winrate - a.winrate;
+        return b.games - a.games;
+      });
+      rootCandidates = sorted.map((m) => ({ move: m.move }));
+    }
+  } catch {
+    // If Lichess/local move service fails, fall back to engine-only selection below.
   }
+
+  if (rootCandidates.length === 0) {
+    const moves = engineResult.bestMoves ?? [];
+    rootCandidates = moves.map((m) => ({ move: m.move }));
+  }
+
   log("rootTopMoves", { moves: rootCandidates.map((c) => c.move) });
 
-  const cappedRoot = rootCandidates.slice(0, PREP_MAX_ROOT_CANDIDATES);
   const { estimatedPositions, estimatedTimeMs } = estimateLineAnalysisWork({
-    rootCandidates: cappedRoot.length,
-    depth: PREP_EXPANSION_DEPTH,
-    preparerBranches: PREPARER_TOP_HUMAN_MOVES,
-    opponentBranches: OPPONENT_MAX_BRANCHES,
+    rootCandidates: rootCandidates.length,
+    depth: PREP_EXPANSION_MAX_DEPTH,
+    preparerBranches: ESTIMATED_PREPARER_BRANCHES,
+    opponentBranches: ESTIMATED_OPPONENT_BRANCHES,
     msPerPosition: ESTIMATED_MS_PER_POSITION,
   });
 
   if (job) {
     await job.updateProgress({
       current: 0,
-      total: cappedRoot.length,
+      total: rootCandidates.length,
       estimatedPositions,
       estimatedTimeMs,
     });
   }
 
-  const linesStored: string[] = [];
+  const allLines: Array<{ line: ExpandedLine; score: number }> = [];
 
-  if (USE_TRAP_PIPELINE) {
-    for (let i = 0; i < cappedRoot.length; i++) {
-      const candidate = cappedRoot[i];
-      const trapLines = await expandTrapOriented({
-        rootFen: rootFenNorm,
-        initialMove: candidate.move,
+  for (let i = 0; i < rootCandidates.length; i++) {
+    const candidate = rootCandidates[i];
+    const expandedLines = await expandRealisticLines(rootFenNorm, candidate.move, {
+      maxDepth: PREP_EXPANSION_MAX_DEPTH,
+      preparerColor,
+      opponentProfile,
+      minEntryProbability,
+      minPracticalWinRate,
+      minOpponentProbability: minOpponentProbabilityToExpand,
+    });
+
+    for (const line of expandedLines) {
+      if (line.lineEngine.length === 0) continue;
+      const score = computePracticalLineScore(
+        line.lineHuman,
+        line.entryProbability,
         preparerColor,
-        opponentProfile,
-        maxDepth: PREP_EXPANSION_DEPTH,
-      });
-      for (const line of trapLines) {
-        if (line.lineEngine.length === 0) continue;
-        if (line.entryProbability < LINE_ANALYSIS_MIN_OPPONENT_ENTRY_PROBABILITY) {
-          log("skipLowEntryProbability", {
-            entryProbability: line.entryProbability,
-            lineMoves: line.lineMoves.slice(0, 3),
-          });
-          continue;
-        }
-        const branchingFactor = computeOpponentBranchingFactor(
-          line.opponentDistributionsPerStep,
-        );
-        const score = computeLineDifficulty(line.lineEngine, line.lineHuman, {
-          opponentProbabilityProduct: line.entryProbability,
-          opponentBranchingFactor: branchingFactor,
-        });
-        const record = await prisma.lineAnalysis.create({
-          data: {
-            rootFen,
-            lineMoves: line.lineMoves as unknown as object,
-            score,
-            metricsJson: {
-              lineEngine: line.lineEngine,
-              lineHuman: line.lineHuman,
-              entryProbability: line.entryProbability,
-              opponentBranchingFactor: branchingFactor,
-              criticalIndex: line.criticalIndex,
-              trapMetrics: line.trapMetrics,
-            } as object,
-          },
-        });
-        linesStored.push(record.id);
-      }
-      if (job) {
-        await job.updateProgress({
-          current: i + 1,
-          total: cappedRoot.length,
-          estimatedPositions,
-          estimatedTimeMs,
-        });
-      }
+      );
+      allLines.push({ line, score });
     }
-  } else {
-    for (let i = 0; i < cappedRoot.length; i++) {
-      const candidate = cappedRoot[i];
-      const expandedLines = await expandRealisticLines(rootFenNorm, candidate.move, {
-        depth: PREP_EXPANSION_DEPTH,
-        preparerColor,
-        opponentProfile,
+    if (job) {
+      await job.updateProgress({
+        current: i + 1,
+        total: rootCandidates.length,
+        estimatedPositions,
+        estimatedTimeMs,
       });
-
-      for (const line of expandedLines) {
-        if (line.lineEngine.length === 0) continue;
-        if (line.entryProbability < LINE_ANALYSIS_MIN_OPPONENT_ENTRY_PROBABILITY) {
-          log("skipLowEntryProbability", {
-            entryProbability: line.entryProbability,
-            lineMoves: line.lineMoves.slice(0, 3),
-          });
-          continue;
-        }
-
-        const branchingFactor = computeOpponentBranchingFactor(
-          line.opponentDistributionsPerStep,
-        );
-        const score = computeLineDifficulty(line.lineEngine, line.lineHuman, {
-          opponentProbabilityProduct: line.entryProbability,
-          opponentBranchingFactor: branchingFactor,
-        });
-        const record = await prisma.lineAnalysis.create({
-          data: {
-            rootFen,
-            lineMoves: line.lineMoves as unknown as object,
-            score,
-            metricsJson: {
-              lineEngine: line.lineEngine,
-              lineHuman: line.lineHuman,
-              entryProbability: line.entryProbability,
-              opponentBranchingFactor: branchingFactor,
-            } as object,
-          },
-        });
-        linesStored.push(record.id);
-      }
-      if (job) {
-        await job.updateProgress({
-          current: i + 1,
-          total: cappedRoot.length,
-          estimatedPositions,
-          estimatedTimeMs,
-        });
-      }
     }
   }
 
-  if (projectId) {
-    const analysisStatus =
-      linesStored.length > 0 ? ANALYSIS_STATUS_WITH_TRAPS : ANALYSIS_STATUS_NO_TRAPS;
-    const normalizedRootFen = normalizeFenForLookup(rootFen);
-    await (
-      prisma as unknown as {
-        openingTreeNode: {
-          updateMany: (args: {
-            where: { projectId: string; fen: string };
-            data: {
-              analysisStatus: string;
-              trapCount: number;
-              lastAnalyzedAt: Date | null;
-              lastJobId: string | null;
-            };
-          }) => Promise<unknown>;
-        };
-      }
-    ).openingTreeNode.updateMany({
-      where: { projectId, fen: normalizedRootFen },
+  allLines.sort((a, b) => b.score - a.score);
+
+  const lineKey = (moves: string[]) => moves.join(" ").toLowerCase();
+  const seenKeys = new Set<string>();
+  const topLines = allLines.filter(({ line }) => {
+    const key = lineKey(line.lineMoves);
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    return true;
+  });
+
+  await prisma.lineAnalysis.deleteMany({ where: { rootFen } });
+
+  const linesStored: string[] = [];
+  for (const { line, score } of topLines) {
+    const record = await prisma.lineAnalysis.create({
       data: {
-        analysisStatus,
-        trapCount: linesStored.length,
-        lastAnalyzedAt: new Date(),
-        lastJobId: null,
+        rootFen,
+        lineMoves: line.lineMoves as unknown as object,
+        score,
+        metricsJson: {
+          lineEngine: line.lineEngine,
+          lineHuman: line.lineHuman,
+          entryProbability: line.entryProbability,
+        } as object,
       },
     });
+    linesStored.push(record.id);
   }
 
   return {

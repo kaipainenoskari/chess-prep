@@ -21,9 +21,11 @@ function toEngine(moves: { move: string; eval: number }[]) {
 
 describe("expandRealisticLines", () => {
   const baseOptions: ExpandRealisticLinesOptions = {
-    depth: 4,
+    maxDepth: 4,
     preparerColor: "white",
     opponentProfile: { ratingBucket: "1600-1800", preparerColor: "white" },
+    minEntryProbability: 0.05,
+    minPracticalWinRate: 0.65,
   };
 
   beforeEach(() => {
@@ -68,7 +70,8 @@ describe("expandRealisticLines", () => {
       })
       .mockResolvedValueOnce({
         moves: [{ move: "g8f6", probability: 1, source: "lichess" }],
-      });
+      })
+      .mockResolvedValue({ moves: [] });
 
     const lines = await expandRealisticLines(START_FEN, "e2e4", baseOptions);
     expect(lines.length).toBeGreaterThanOrEqual(1);
@@ -86,8 +89,7 @@ describe("expandRealisticLines", () => {
 
     const lines = await expandRealisticLines(START_FEN, "e2e4", {
       ...baseOptions,
-      depth: 2,
-      minOpponentProbability: 0.05,
+      maxDepth: 2,
     });
     expect(lines.length).toBeGreaterThanOrEqual(1);
     expect(lines[0].lineMoves[0]).toBe("e2e4");
@@ -105,7 +107,7 @@ describe("expandRealisticLines", () => {
 
     const lines = await expandRealisticLines(START_FEN, "e2e4", {
       ...baseOptions,
-      depth: 2,
+      maxDepth: 2,
     });
     expect(lines.length).toBe(1);
     expect(lines[0].lineMoves[1]).toBe("e7e5");

@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { getCached, setCached, lichessCacheKey } from "@/lib/cache";
-import { LICHESS_EXPLORER_BASE, CACHE_LICHESS_TTL } from "@/lib/config";
+import {
+  LICHESS_EXPLORER_BASE,
+  CACHE_LICHESS_TTL,
+  FEN_MOVE_SERVICE_URL,
+} from "@/lib/config";
 import type { LichessExplorerResponse } from "@/lib/types";
 import { normalizeFenForLookup } from "@/lib/fen";
 
@@ -40,8 +44,9 @@ export interface GetHumanMovesResult {
 }
 
 /**
- * Fetch human move frequencies for a position: Redis → LichessMoveCache → Lichess API.
- * Winrate is from the perspective of the side to move.
+ * Fetch human move frequencies for a position: Redis → LichessMoveCache → local FEN service or Lichess API.
+ * When FEN_MOVE_SERVICE_URL is set, uses GET {base}/query?fen=...&bucket=... (same response shape as GetHumanMovesResult).
+ * Otherwise falls back to the Lichess Explorer API. Winrate is from the perspective of the side to move.
  */
 export async function getHumanMoves(
   fen: string,
@@ -93,9 +98,13 @@ export async function getHumanMoves(
     });
   }
 
-  const ratings = ratingBucketToRatings(ratingBucket);
   const fenForApi = normalizeFenForLookup(fen);
 
+  if (FEN_MOVE_SERVICE_URL) {
+    return fetchFromLocalService(FEN_MOVE_SERVICE_URL, fen, fenForApi, ratingBucket, key);
+  }
+
+  const ratings = ratingBucketToRatings(ratingBucket);
   const params = new URLSearchParams({
     variant: "standard",
     speeds: DEFAULT_SPEEDS,
@@ -194,5 +203,55 @@ export async function getHumanMoves(
     });
   }
 
+  return result;
+}
+
+/**
+ * Fetch human move stats from the local FEN→move-frequency service.
+ * Response shape must match GetHumanMovesResult (moves: { move, games, winrate }[]).
+ */
+async function fetchFromLocalService(
+  baseUrl: string,
+  fen: string,
+  fenNorm: string,
+  ratingBucket: string,
+  cacheKey: string,
+): Promise<GetHumanMovesResult> {
+  const url = `${baseUrl.replace(/\/$/, "")}/query?fen=${encodeURIComponent(fenNorm)}&bucket=${encodeURIComponent(ratingBucket)}`;
+  logLichess("getHumanMoves fetch (local)", {
+    fenSnippet: fen.slice(0, 50),
+    ratingBucket,
+  });
+
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) {
+    throw new Error(`FEN move service error: ${res.status}`);
+  }
+  const data = (await res.json()) as { moves?: HumanMoveStat[] };
+  const moves: HumanMoveStat[] = (data.moves ?? []).map((m) => ({
+    move: m.move,
+    games: Number(m.games) || 0,
+    winrate: Number(m.winrate) ?? 0,
+  }));
+  const result: GetHumanMovesResult = { moves };
+  const totalGames = moves.reduce((s, m) => s + m.games, 0);
+
+  logLichess("getHumanMoves fetched", {
+    source: "local",
+    fenSnippet: fen.slice(0, 50),
+    ratingBucket,
+    movesLength: moves.length,
+    totalGames,
+    topMoves: moves.slice(0, 5).map((m) => ({ move: m.move, games: m.games })),
+  });
+
+  if (totalGames > 0) {
+    await prisma.lichessMoveCache.upsert({
+      where: { fen_ratingBucket: { fen, ratingBucket } },
+      create: { fen, ratingBucket, movesJson: result as object },
+      update: { movesJson: result as object },
+    });
+    await setCached(cacheKey, result, CACHE_LICHESS_TTL);
+  }
   return result;
 }

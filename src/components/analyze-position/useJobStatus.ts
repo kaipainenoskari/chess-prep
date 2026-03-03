@@ -77,6 +77,10 @@ export function useJobStatus(jobId: string | null): JobStatusResult {
 
   useEffect(() => {
     if (!jobId) return;
+    // Stop polling once job is finished so we don't keep updating state and triggering refetches
+    if (state === "completed" || state === "failed") {
+      return;
+    }
     const tick = () => void fetchStatus();
     const timeoutId = setTimeout(tick, 0);
     const intervalId = setInterval(tick, POLL_INTERVAL_MS);
@@ -84,7 +88,7 @@ export function useJobStatus(jobId: string | null): JobStatusResult {
       clearTimeout(timeoutId);
       clearInterval(intervalId);
     };
-  }, [jobId, fetchStatus]);
+  }, [jobId, fetchStatus, state]);
 
   return { state, result, progress, failedReason, error, refetch: fetchStatus };
 }

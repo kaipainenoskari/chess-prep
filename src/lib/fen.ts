@@ -41,3 +41,21 @@ export function applyMoveUci(fen: string, uci: string): string | null {
   if (!applied) return null;
   return normalizeFenForLookup(game.fen());
 }
+
+/**
+ * Return FEN after applying the first `count` UCI moves from `uciMoves` to `rootFen`.
+ * count 0 returns normalized rootFen. Returns null if any move is illegal.
+ */
+export function fenAfterUciMoves(
+  rootFen: string,
+  uciMoves: string[],
+  count: number,
+): string | null {
+  if (count <= 0) return normalizeFenForLookup(rootFen);
+  let fen: string | null = normalizeFenForLookup(rootFen);
+  const limit = Math.min(count, uciMoves.length);
+  for (let i = 0; i < limit && fen != null; i++) {
+    fen = applyMoveUci(fen, uciMoves[i]);
+  }
+  return fen;
+}

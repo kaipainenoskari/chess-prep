@@ -141,7 +141,7 @@ export default function AnalyzePage() {
 
       {/* Section 2: Opening Repertoire */}
       <div className="mb-6">
-        <OpeningRepertoireComponent openings={data.openings} stats={data.stats} />
+        <OpeningRepertoireComponent openings={data.openings} />
       </div>
 
       {/* Section 3: Time Analysis */}

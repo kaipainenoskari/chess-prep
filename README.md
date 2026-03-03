@@ -65,6 +65,22 @@ To use **Line difficulty** ([http://localhost:3000/analyze-position](http://loca
 
 Then open [http://localhost:3000/analyze-position](http://localhost:3000/analyze-position), enter a FEN, and click **Analyze position**. The worker will run the analysis; when it finishes, ranked lines appear on the page.
 
+### 4. (Optional) Local FEN→move-frequency service
+
+Human move stats (used for opponent move distribution, line expansion, and trap detection) can be served from a local HTTP service instead of the Lichess Explorer API.
+
+- **Config**: Set `FEN_MOVE_SERVICE_URL` in `.env.local` (e.g. `http://localhost:8080`). When set, the app uses only the local service and does not call the Lichess Explorer API for this data. When unset or empty, it falls back to Lichess.
+- **Endpoint**: `GET /query?fen=<url-encoded FEN>&bucket=<e.g. 1600-1800>`. FEN is normalized (6-field, trimmed) as in the rest of the app; bucket format is the same (e.g. `1600-1800`).
+- **Response shape**: JSON `{ "moves": [ { "move": "<uci>", "games": <number>, "winrate": <0-1> }, ... ] }` — matches `GetHumanMovesResult` so the app uses the same types (`HumanMoveStat`, etc.). Winrate is for the side to move in [0, 1].
+
+Example: run the local service (e.g. from the `lichess-move-db` repo or equivalent):
+
+```bash
+cargo run --release -- serve --db ./data/fen_move.db --bind 127.0.0.1:8080
+```
+
+Then set `FEN_MOVE_SERVICE_URL=http://localhost:8080` in `.env.local`.
+
 ## How It Works
 
 Enter any Chess.com username and the tool fetches their recent games, then runs four analyses:
@@ -79,7 +95,7 @@ Enter any Chess.com username and the tool fetches their recent games, then runs 
 ### Data Sources
 
 - **Chess.com API** — player profiles, stats, and game archives
-- **Lichess Opening Explorer** — population-level opening statistics for comparison
+- **Human move stats** — optional local FEN move service (`FEN_MOVE_SERVICE_URL`); if not set, Lichess Opening Explorer is used for population move frequencies
 - **Lichess Cloud Eval / Chess-API.com** — Stockfish position evaluations
 
 Results are cached in a local SQLite database so repeated lookups are fast.

@@ -1,11 +1,10 @@
-import {
-  TIME_TROUBLE_THRESHOLD,
-  TIME_CRITICAL_THRESHOLD,
-  PHASE_OPENING_END,
-  PHASE_MIDDLEGAME_END,
-  CLOCK_CHART_MAX_MOVE,
-} from "../config";
 import type { ParsedGame, TimeProfile, TimeTroubleStats } from "../types";
+
+const TIME_TROUBLE_THRESHOLD = 30;
+const TIME_CRITICAL_THRESHOLD = 10;
+const PHASE_OPENING_END = 10;
+const PHASE_MIDDLEGAME_END = 25;
+const CLOCK_CHART_MAX_MOVE = 60;
 
 /**
  * Extract the player's clock times from a game.

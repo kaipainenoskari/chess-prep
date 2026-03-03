@@ -5,6 +5,7 @@ import {
   computeUnnaturalScore,
   computeLineDifficulty,
   computeOpponentBranchingFactor,
+  computePracticalLineScore,
   type EngineResultForMargin,
   type LineEngineMove,
   type LineHumanMove,
@@ -145,5 +146,34 @@ describe("computeOpponentBranchingFactor", () => {
       ],
     ];
     expect(computeOpponentBranchingFactor(dists, 0.05)).toBe(0);
+  });
+});
+
+describe("computePracticalLineScore", () => {
+  it("returns entryProbability * 0.5 when lineHuman is empty", () => {
+    expect(computePracticalLineScore([], 0.8, "white")).toBe(0.4);
+  });
+
+  it("when preparer (white) made last move: uses that winrate", () => {
+    const lineHuman: LineHumanMove[] = [
+      { move: "e4", games: 100, winrate: 0.55 },
+      { move: "e5", games: 80, winrate: 0.48 },
+      { move: "Nf3", games: 60, winrate: 0.62 },
+    ];
+    expect(computePracticalLineScore(lineHuman, 1, "white")).toBe(0.62);
+    expect(computePracticalLineScore(lineHuman, 0.5, "white")).toBe(0.31);
+  });
+
+  it("when opponent made last move: uses 1 - winrate for preparer perspective", () => {
+    const lineHuman: LineHumanMove[] = [
+      { move: "e4", games: 100, winrate: 0.55 },
+      { move: "e5", games: 80, winrate: 0.48 },
+    ];
+    expect(computePracticalLineScore(lineHuman, 1, "white")).toBe(0.52);
+  });
+
+  it("rounds to 3 decimal places", () => {
+    const lineHuman: LineHumanMove[] = [{ move: "e4", games: 100, winrate: 0.666 }];
+    expect(computePracticalLineScore(lineHuman, 0.333, "white")).toBe(0.222);
   });
 });

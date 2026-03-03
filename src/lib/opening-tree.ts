@@ -1,5 +1,5 @@
 import { Chess, type Square } from "chess.js";
-import type { OpeningNode, PrepSuggestion } from "./types";
+import type { OpeningNode } from "./types";
 
 export const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -95,38 +95,4 @@ export function getRepertoireMoves(
   }
 
   return results;
-}
-
-/**
- * Convert prep suggestions into board arrows, color-coded by score.
- * High score = bright green, low score = dim yellow.
- */
-export function prepSuggestionsToArrows(
-  fen: string,
-  suggestions: PrepSuggestion[],
-): BoardArrow[] {
-  if (suggestions.length === 0) return [];
-
-  const arrows: BoardArrow[] = [];
-  const chess = new Chess(fen);
-
-  for (const suggestion of suggestions) {
-    try {
-      const move = chess.move(suggestion.move);
-      if (move) {
-        // Interpolate color from yellow (low) to green (high)
-        const t = Math.min(Math.max(suggestion.score / 100, 0), 1);
-        const r = Math.round(255 * (1 - t) + 34 * t);
-        const g = Math.round(200 * (1 - t) + 197 * t);
-        const b = Math.round(0 * (1 - t) + 94 * t);
-        const opacity = 0.4 + t * 0.5;
-        arrows.push([move.from, move.to, `rgba(${r}, ${g}, ${b}, ${opacity})`]);
-      }
-      chess.undo();
-    } catch {
-      // Invalid move for this position — skip
-    }
-  }
-
-  return arrows;
 }

@@ -1,8 +1,4 @@
-import {
-  OPPONENT_MIN_MOVE_PROBABILITY,
-  LINE_SCORE_WEIGHT_OPPONENT_PROBABILITY,
-  LINE_SCORE_WEIGHT_BRANCHING,
-} from "@/lib/config";
+import { OPPONENT_MIN_PROBABILITY_TO_EXPAND } from "@/lib/config";
 
 /**
  * Pure difficulty metrics for candidate lines.
@@ -60,7 +56,7 @@ export function computeHumanErrorRate(
  */
 export function computeOpponentBranchingFactor(
   opponentMoveDistributionsPerStep: Array<{ move: string; probability: number }[]>,
-  minProbabilityThreshold: number = OPPONENT_MIN_MOVE_PROBABILITY,
+  minProbabilityThreshold: number = OPPONENT_MIN_PROBABILITY_TO_EXPAND,
 ): number {
   let factor = 0;
   for (const dist of opponentMoveDistributionsPerStep) {
@@ -107,10 +103,44 @@ export function computeLineDifficulty(
     score += margin * 0.1 + errorRate * 50;
   }
   if (options?.opponentProbabilityProduct != null) {
-    score += options.opponentProbabilityProduct * LINE_SCORE_WEIGHT_OPPONENT_PROBABILITY;
+    score += options.opponentProbabilityProduct * 20;
   }
   if (options?.opponentBranchingFactor != null) {
-    score -= options.opponentBranchingFactor * LINE_SCORE_WEIGHT_BRANCHING;
+    score -= options.opponentBranchingFactor * 10;
   }
   return Math.round(score * 10) / 10;
+}
+
+/**
+ * Practical win rate for the preparer at the end of the line (0–1), from population data.
+ * Last move: if by preparer use last.winrate; if by opponent use 1 - last.winrate.
+ */
+export function getTerminalPracticalWinRate(
+  lineHumanData: LineHumanMove[],
+  preparerColor: "white" | "black",
+): number {
+  if (lineHumanData.length === 0) return 0.5;
+  const last = lineHumanData[lineHumanData.length - 1];
+  const lastMoveByPreparer =
+    (lineHumanData.length - 1) % 2 === (preparerColor === "white" ? 0 : 1);
+  return lastMoveByPreparer ? last.winrate : 1 - last.winrate;
+}
+
+/**
+ * Practical line score: probability opponent enters the line × our practical win rate at the end.
+ * Uses only population/human data (winrate); no engine eval or difficulty.
+ * Higher = more probable and better practical outcome for the preparer.
+ */
+export function computePracticalLineScore(
+  lineHumanData: LineHumanMove[],
+  entryProbability: number,
+  preparerColor: "white" | "black",
+): number {
+  if (lineHumanData.length === 0) return entryProbability * 0.5;
+  const terminalWinRatePreparer = getTerminalPracticalWinRate(
+    lineHumanData,
+    preparerColor,
+  );
+  const score = entryProbability * terminalWinRatePreparer;
+  return Math.round(score * 1000) / 1000;
 }

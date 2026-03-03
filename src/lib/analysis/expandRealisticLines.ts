@@ -7,12 +7,11 @@ import { analyzePosition } from "@/lib/engine/analyzePosition";
 import type { LineEngineMove, LineHumanMove } from "@/lib/analysis/metrics";
 import {
   LINE_ANALYSIS_DEPTH,
-  LINE_ANALYSIS_LINE_DEPTH,
   LINE_ANALYSIS_MULTIPV,
-  OPPONENT_MIN_MOVE_PROBABILITY,
+  PREP_EXPANSION_MAX_DEPTH,
+  PREP_MIN_HALFMOVES_BEFORE_WINNING,
+  OPPONENT_MIN_PROBABILITY_TO_EXPAND,
   OPPONENT_FORCED_BRANCH_THRESHOLD,
-  OPPONENT_MAX_BRANCHES,
-  OPPONENT_SECOND_BRANCH_MIN_PROB,
   PREP_MIN_POPULATION_GAMES,
 } from "@/lib/config";
 
@@ -29,9 +28,14 @@ export interface ExpandedLine {
 }
 
 export interface ExpandRealisticLinesOptions {
-  depth: number;
+  /** Max half-moves (safety cap); expansion stops earlier on min prob or winning. */
+  maxDepth: number;
   preparerColor: "white" | "black";
   opponentProfile: OpponentProfile;
+  /** Stop expanding when entry probability drops below this. */
+  minEntryProbability: number;
+  /** Return line when practical win rate (preparer view) at position >= this. */
+  minPracticalWinRate: number;
   minOpponentProbability?: number;
   forcedBranchThreshold?: number;
 }
@@ -75,12 +79,58 @@ function isOpponentTurn(fen: string, preparerColor: "white" | "black"): boolean 
 }
 
 function moveMatches(a: string, b: string): boolean {
-  return a.toLowerCase().trim() === b.toLowerCase().trim();
+  return normalizeUci(a) === normalizeUci(b);
+}
+
+/** Dedupe by normalized UCI (keeps first occurrence; case-insensitive). */
+function dedupeByMove<T>(items: T[], getMove: (t: T) => string): T[] {
+  const seen = new Set<string>();
+  return items.filter((t) => {
+    const key = normalizeUci(getMove(t)).toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function currentEntryProbability(opponentProbs: number[]): number {
+  return opponentProbs.length > 0 ? opponentProbs.reduce((p, q) => p * q, 1) : 1;
+}
+
+function terminalLine(
+  lineMoves: string[],
+  lineEngine: LineEngineMove[],
+  lineHuman: LineHumanMove[],
+  opponentProbs: number[],
+  opponentDistributionsSoFar: Array<{ move: string; probability: number }[]>,
+): ExpandedLine {
+  return {
+    lineMoves: [...lineMoves],
+    lineEngine: [...lineEngine],
+    lineHuman: [...lineHuman],
+    opponentProbabilityPerStep: [...opponentProbs],
+    opponentDistributionsPerStep: [...opponentDistributionsSoFar],
+    entryProbability: currentEntryProbability(opponentProbs),
+  };
+}
+
+/** Practical win rate for preparer at this position: from human moves (side to move). */
+function practicalWinRatePreparer(
+  moves: Array<{ move: string; games: number; winrate: number }>,
+  preparerColor: "white" | "black",
+  sideToMove: "w" | "b",
+): number {
+  if (moves.length === 0) return 0.5;
+  const bestWinRate = Math.max(...moves.map((m) => m.winrate));
+  const preparerToMove =
+    (sideToMove === "w" && preparerColor === "white") ||
+    (sideToMove === "b" && preparerColor === "black");
+  return preparerToMove ? bestWinRate : 1 - bestWinRate;
 }
 
 /**
- * Expand one or more lines from (currentFen, depthLeft), appending to the given
- * line state. Returns an array of completed lines (when depth 0 or no move).
+ * Expand lines: stop when entry prob below bar, when we hit winning win rate, or at max depth.
+ * Opponent: only expand moves >= OPPONENT_MIN_PROBABILITY_TO_EXPAND. Preparer: top X by win rate.
  */
 async function expandStep(
   currentFen: string,
@@ -94,24 +144,33 @@ async function expandStep(
   opponentDistributionsSoFar: Array<{ move: string; probability: number }[]>,
   options: ExpandRealisticLinesOptions,
 ): Promise<ExpandedLine[]> {
-  if (depthLeft <= 0) {
-    const entryProbability =
-      opponentProbs.length > 0 ? opponentProbs.reduce((p, q) => p * q, 1) : 1;
+  const entryProb = currentEntryProbability(opponentProbs);
+  if (entryProb < options.minEntryProbability) {
     return [
-      {
-        lineMoves: [...lineMoves],
-        lineEngine: [...lineEngine],
-        lineHuman: [...lineHuman],
-        opponentProbabilityPerStep: [...opponentProbs],
-        opponentDistributionsPerStep: [...opponentDistributionsSoFar],
-        entryProbability,
-      },
+      terminalLine(
+        lineMoves,
+        lineEngine,
+        lineHuman,
+        opponentProbs,
+        opponentDistributionsSoFar,
+      ),
+    ];
+  }
+
+  if (depthLeft <= 0) {
+    return [
+      terminalLine(
+        lineMoves,
+        lineEngine,
+        lineHuman,
+        opponentProbs,
+        opponentDistributionsSoFar,
+      ),
     ];
   }
 
   const fenNorm = normalizeFenForLookup(currentFen);
   const opponentTurn = isOpponentTurn(fenNorm, options.preparerColor);
-  const minProb = options.minOpponentProbability ?? OPPONENT_MIN_MOVE_PROBABILITY;
   const forcedThresh = options.forcedBranchThreshold ?? OPPONENT_FORCED_BRANCH_THRESHOLD;
 
   if (opponentTurn) {
@@ -121,28 +180,44 @@ async function expandStep(
       getHumanMoves(fenNorm, options.opponentProfile.ratingBucket),
     ]);
 
-    const allowed = dist.moves.filter((m) => m.probability >= minProb);
-    if (allowed.length === 0) {
-      const entryProbability =
-        opponentProbs.length > 0 ? opponentProbs.reduce((p, q) => p * q, 1) : 1;
+    const side = sideToMove(fenNorm);
+    const winRateHere = practicalWinRatePreparer(
+      humanResult.moves,
+      options.preparerColor,
+      side,
+    );
+    const canStopWinning =
+      lineMoves.length >= PREP_MIN_HALFMOVES_BEFORE_WINNING &&
+      winRateHere >= options.minPracticalWinRate;
+    if (canStopWinning) {
       return [
-        {
-          lineMoves: [...lineMoves],
-          lineEngine: [...lineEngine],
-          lineHuman: [...lineHuman],
-          opponentProbabilityPerStep: [...opponentProbs],
-          opponentDistributionsPerStep: [...opponentDistributionsSoFar],
-          entryProbability,
-        },
+        terminalLine(
+          lineMoves,
+          lineEngine,
+          lineHuman,
+          opponentProbs,
+          opponentDistributionsSoFar,
+        ),
       ];
     }
 
-    const forcedMove = allowed.find((m) => m.probability >= forcedThresh) ?? null;
-    const toExpand = forcedMove
-      ? [forcedMove]
-      : allowed
-          .filter((m) => m.probability >= OPPONENT_SECOND_BRANCH_MIN_PROB)
-          .slice(0, OPPONENT_MAX_BRANCHES);
+    const minProb = options.minOpponentProbability ?? OPPONENT_MIN_PROBABILITY_TO_EXPAND;
+    const allowed = (dist?.moves ?? []).filter((m) => m.probability >= minProb);
+    if (allowed.length === 0) {
+      return [
+        terminalLine(
+          lineMoves,
+          lineEngine,
+          lineHuman,
+          opponentProbs,
+          opponentDistributionsSoFar,
+        ),
+      ];
+    }
+
+    const dedupedAllowed = dedupeByMove(allowed, (m) => m.move);
+    const forcedMove = dedupedAllowed.find((m) => m.probability >= forcedThresh) ?? null;
+    const toExpand = forcedMove ? [forcedMove] : dedupedAllowed;
 
     const out: ExpandedLine[] = [];
     for (const { move: oppMove, probability } of toExpand) {
@@ -182,104 +257,114 @@ async function expandStep(
     return out;
   }
 
-  // Preparer's turn: prefer best move by Lichess human win rate; fallback to engine best
+  // Preparer's turn: expand top N moves by win rate
   const [engineResult, humanResult] = await Promise.all([
     analyzePosition(fenNorm, LINE_ANALYSIS_DEPTH, LINE_ANALYSIS_MULTIPV),
     getHumanMoves(fenNorm, options.opponentProfile.ratingBucket),
   ]);
 
-  let moveToPlay: { move: string; eval: number } | undefined;
+  const side = sideToMove(fenNorm);
+  const winRateHere = practicalWinRatePreparer(
+    humanResult.moves,
+    options.preparerColor,
+    side,
+  );
+  const canStopWinning =
+    lineMoves.length >= PREP_MIN_HALFMOVES_BEFORE_WINNING &&
+    winRateHere >= options.minPracticalWinRate;
+  if (canStopWinning) {
+    return [
+      terminalLine(
+        lineMoves,
+        lineEngine,
+        lineHuman,
+        opponentProbs,
+        opponentDistributionsSoFar,
+      ),
+    ];
+  }
+
+  let movesToExpand: Array<{ move: string; games: number; winrate: number }> = [];
   if (isFirstStep && initialMove) {
-    moveToPlay =
-      engineResult.bestMoves.find((m) => moveMatches(m.move, initialMove)) ??
-      engineResult.bestMoves[0];
-  } else {
+    const match = humanResult.moves.find((m) => moveMatches(m.move, initialMove));
+    if (match) movesToExpand = [match];
+  }
+  if (movesToExpand.length === 0) {
     const withEnoughGames = humanResult.moves.filter(
       (m) => m.games >= PREP_MIN_POPULATION_GAMES,
     );
-    if (withEnoughGames.length > 0) {
-      const bestByWinRate = withEnoughGames.reduce((a, b) =>
-        a.winrate >= b.winrate ? a : b,
-      );
-      const eng = engineResult.bestMoves.find((m) =>
-        moveMatches(m.move, bestByWinRate.move),
-      );
-      moveToPlay = eng ? { move: eng.move, eval: eng.eval } : engineResult.bestMoves[0];
-    } else {
-      moveToPlay = engineResult.bestMoves[0];
-    }
+    const source = withEnoughGames.length > 0 ? withEnoughGames : humanResult.moves;
+    const sorted = [...source].sort((a, b) => b.winrate - a.winrate);
+    movesToExpand = dedupeByMove(sorted, (m) => m.move);
   }
-
-  if (!moveToPlay) {
-    const entryProbability =
-      opponentProbs.length > 0 ? opponentProbs.reduce((p, q) => p * q, 1) : 1;
-    return [
+  if (movesToExpand.length === 0 && engineResult.bestMoves[0]) {
+    const fallback = engineResult.bestMoves[0];
+    const humanMove = humanResult.moves.find((m) => moveMatches(m.move, fallback.move));
+    movesToExpand = [
       {
-        lineMoves: [...lineMoves],
-        lineEngine: [...lineEngine],
-        lineHuman: [...lineHuman],
-        opponentProbabilityPerStep: [...opponentProbs],
-        opponentDistributionsPerStep: [...opponentDistributionsSoFar],
-        entryProbability,
-      },
-    ];
-  }
-
-  const humanMove = humanResult.moves.find((m) => moveMatches(m.move, moveToPlay.move));
-  const game = new Chess(fenNorm);
-  const { from, to, promotion } = uciToFromTo(moveToPlay.move);
-  const applied = game.move({ from, to, promotion });
-  if (!applied) {
-    const entryProbability =
-      opponentProbs.length > 0 ? opponentProbs.reduce((p, q) => p * q, 1) : 1;
-    return [
-      {
-        lineMoves: [...lineMoves],
-        lineEngine: [...lineEngine],
-        lineHuman: [...lineHuman],
-        opponentProbabilityPerStep: [...opponentProbs],
-        opponentDistributionsPerStep: [...opponentDistributionsSoFar],
-        entryProbability,
-      },
-    ];
-  }
-
-  const nextFen = normalizeFenForLookup(game.fen());
-  return expandStep(
-    nextFen,
-    depthLeft - 1,
-    null,
-    false,
-    [...lineMoves, moveToPlay.move],
-    [...lineEngine, { move: moveToPlay.move, eval: moveToPlay.eval }],
-    [
-      ...lineHuman,
-      {
-        move: moveToPlay.move,
+        move: fallback.move,
         games: humanMove?.games ?? 0,
-        winrate: humanMove?.winrate ?? 0,
+        winrate: humanMove?.winrate ?? 0.5,
       },
-    ],
-    opponentProbs,
-    opponentDistributionsSoFar,
-    options,
-  );
+    ];
+  }
+
+  const out: ExpandedLine[] = [];
+  for (const { move: prepMove, games, winrate } of movesToExpand) {
+    const eng = engineResult.bestMoves.find((m) => moveMatches(m.move, prepMove));
+    const moveToPlay = eng
+      ? { move: eng.move, eval: eng.eval }
+      : engineResult.bestMoves[0];
+    if (!moveToPlay) continue;
+
+    const game = new Chess(fenNorm);
+    const { from, to, promotion } = uciToFromTo(moveToPlay.move);
+    const applied = game.move({ from, to, promotion });
+    if (!applied) continue;
+
+    const nextFen = normalizeFenForLookup(game.fen());
+    const nextLines = await expandStep(
+      nextFen,
+      depthLeft - 1,
+      null,
+      false,
+      [...lineMoves, moveToPlay.move],
+      [...lineEngine, { move: moveToPlay.move, eval: moveToPlay.eval }],
+      [...lineHuman, { move: moveToPlay.move, games, winrate }],
+      opponentProbs,
+      opponentDistributionsSoFar,
+      options,
+    );
+    out.push(...nextLines);
+  }
+
+  if (out.length === 0) {
+    return [
+      terminalLine(
+        lineMoves,
+        lineEngine,
+        lineHuman,
+        opponentProbs,
+        opponentDistributionsSoFar,
+      ),
+    ];
+  }
+  return out;
 }
 
 /**
- * Expand realistic lines from root: preparer moves follow engine, opponent moves
- * are constrained by getOpponentMoveDistribution (min prob, forced branch).
- * Returns one or more lines per initial move when opponent has multiple options.
+ * Expand realistic lines from root. Stops when entry prob < bar, practical win rate >= bar, or max depth.
+ * Opponent: all moves >= OPPONENT_MIN_PROBABILITY_TO_EXPAND (or single move if forced). Preparer: all moves with enough games.
  */
 export async function expandRealisticLines(
   rootFen: string,
   initialMove: string,
   options: ExpandRealisticLinesOptions,
 ): Promise<ExpandedLine[]> {
-  const depth = options.depth ?? LINE_ANALYSIS_LINE_DEPTH;
+  const maxDepth = options.maxDepth ?? PREP_EXPANSION_MAX_DEPTH;
   const fenNorm = normalizeFenForLookup(rootFen);
-  return expandStep(fenNorm, depth, initialMove, true, [], [], [], [], [], {
+  return expandStep(fenNorm, maxDepth, initialMove, true, [], [], [], [], [], {
     ...options,
-    depth,
+    maxDepth,
   });
 }

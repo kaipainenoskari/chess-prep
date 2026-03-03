@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getOpponentMoveDistribution, type OpponentProfile } from "./moveProbability";
-import { getOpponentMovesAtFen } from "@/lib/prep/getOpponentMovesAtFen";
 import { getHumanMoves } from "@/lib/lichess/getHumanMoves";
 import { analyzePosition } from "@/lib/engine/analyzePosition";
 
-vi.mock("@/lib/prep/getOpponentMovesAtFen");
 vi.mock("@/lib/lichess/getHumanMoves");
 vi.mock("@/lib/engine/analyzePosition");
 
@@ -15,29 +13,7 @@ describe("getOpponentMoveDistribution", () => {
     vi.clearAllMocks();
   });
 
-  it("returns player distribution when only player data exists", async () => {
-    vi.mocked(getOpponentMovesAtFen).mockResolvedValue([
-      { move: "e4", games: 80 },
-      { move: "d4", games: 20 },
-    ]);
-    vi.mocked(getHumanMoves).mockRejectedValue(new Error("no lichess"));
-    const profile: OpponentProfile = {
-      projectId: "proj1",
-      ratingBucket: "1600-1800",
-      preparerColor: "white",
-    };
-    const result = await getOpponentMoveDistribution(FEN, profile);
-    expect(result.moves.length).toBeGreaterThanOrEqual(1);
-    const e4 = result.moves.find(
-      (m) => m.move === "e2e4" || m.move.toLowerCase() === "e2e4",
-    );
-    expect(e4).toBeDefined();
-    expect(e4!.probability).toBeCloseTo(0.8, 2);
-    expect(e4!.source).toBe("player");
-  });
-
-  it("returns lichess distribution when no projectId", async () => {
-    vi.mocked(getOpponentMovesAtFen).mockResolvedValue([]);
+  it("returns lichess distribution when Lichess has data", async () => {
     vi.mocked(getHumanMoves).mockResolvedValue({
       moves: [
         { move: "e2e4", games: 100, winrate: 0.55 },
@@ -56,8 +32,7 @@ describe("getOpponentMoveDistribution", () => {
     expect(e4!.source).toBe("lichess");
   });
 
-  it("returns engine fallback when no human data", async () => {
-    vi.mocked(getOpponentMovesAtFen).mockResolvedValue([]);
+  it("returns engine fallback when no Lichess data", async () => {
     vi.mocked(getHumanMoves).mockRejectedValue(new Error("no lichess"));
     vi.mocked(analyzePosition).mockResolvedValue({
       bestMoves: [

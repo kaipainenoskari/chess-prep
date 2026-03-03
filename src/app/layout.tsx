@@ -18,20 +18,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <span className="text-2xl">&#9822;</span>
                 <span>Chess Prep</span>
               </Link>
-              <div className="flex items-center gap-4">
-                <Link
-                  href="/prep"
-                  className="text-sm text-gray-400 hover:text-white transition-colors"
-                >
-                  Prep projects
-                </Link>
-                <Link
-                  href="/analyze-position"
-                  className="text-sm text-gray-400 hover:text-white transition-colors"
-                >
-                  Line difficulty
-                </Link>
-              </div>
             </div>
           </div>
         </nav>
